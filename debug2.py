@@ -156,22 +156,61 @@ class ProblemGenerator:
             1, int(np.random.normal(10, 2)))
 
     def generate(self):
-        interarrival_times = np.random.exponential(
-            1 / max(self.lambda_arrival, 1e-6), self.num_jobs)
+        # ----- arrivals: Poisson vs bursty mix -----
+        arrival_mode = random.choice(["poisson", "bursty"])
+        if arrival_mode == "poisson":
+            interarrival_times = np.random.exponential(
+                1 / max(self.lambda_arrival, 1e-6), self.num_jobs)
+        else:
+            # mixture of fast & slow rates to create bursts
+            fast = max(self.lambda_arrival * random.uniform(2.0, 5.0), 1e-6)
+            slow = max(self.lambda_arrival * random.uniform(0.1, 0.5), 1e-6)
+            rates = np.where(np.random.rand(self.num_jobs) < 0.7, fast, slow)
+            interarrival_times = np.random.exponential(1 / rates)
         arrival_times = np.cumsum(interarrival_times)
-        requested_execution_times = np.random.normal(
-            self.mu_execution, max(self.sigma_execution, 1e-6), self.num_jobs)
-        noise = np.random.normal(self.mu_noise, max(
-            self.sigma_noise, 1e-6), self.num_jobs)
+
+        # ----- requested exec time: pick a distribution per case -----
+        exec_mode = random.choice(["normal", "lognormal", "gamma"])
+        if exec_mode == "normal":
+            requested_execution_times = np.random.normal(
+                self.mu_execution, max(self.sigma_execution, 1e-6), self.num_jobs)
+        elif exec_mode == "lognormal":
+            sigma_l = random.uniform(0.3, 0.8)
+            mu_l = math.log(max(self.mu_execution, 1.0)) - 0.5 * sigma_l**2
+            requested_execution_times = np.random.lognormal(
+                mu_l, sigma_l, self.num_jobs)
+        else:  # gamma
+            k = random.uniform(2.0, 7.0)
+            theta = max(self.mu_execution / k, 1e-6)
+            requested_execution_times = np.random.gamma(
+                k, theta, self.num_jobs)
 
         requested_execution_times = np.maximum(requested_execution_times, 1.0)
+
+        # noise (still additive, but with random scale)
+        noise_sigma = max(self.sigma_noise, 1e-6) * random.uniform(0.5, 1.5)
+        noise = np.random.normal(self.mu_noise, noise_sigma, self.num_jobs)
         actual_execution_times = np.maximum(
             requested_execution_times + noise, 1.0)
-        num_nodes_required = np.clip(
-            np.random.normal(math.ceil(self.max_node / 2), 1, self.num_jobs),
-            1, self.max_node
-        )
 
+        # ----- nodes required: mix of patterns -----
+        vals = np.empty(self.num_jobs, dtype=float)
+        r = np.random.rand(self.num_jobs)
+        mid = math.ceil(self.max_node / 2)
+        for i in range(self.num_jobs):
+            if r[i] < 0.30:
+                # uniform across full range
+                vals[i] = np.random.randint(1, self.max_node + 1)
+            elif r[i] < 0.70:
+                # concentrated near mid with some spread
+                vals[i] = np.random.normal(mid, max(self.max_node / 5, 1))
+            else:
+                # extremes: either tiny or maxed-out jobs
+                vals[i] = 1 if np.random.rand() < 0.5 else self.max_node
+        num_nodes_required = np.clip(
+            np.round(vals), 1, self.max_node).astype(int)
+
+        # ----- assemble -----
         workloads = []
         for i in range(self.num_jobs):
             workloads.append({
@@ -202,50 +241,69 @@ def build_workload_json(max_node_for_jobs: int, workloads: list) -> Dict[str, An
 
 def generate_machine(
     machine_id: int,
-    base_power: float,
-    switching_off_power: float,
-    switching_on_power: float,
-    sleeping_power: float,
-    switching_on_time: int,
-    switching_off_time: int
+    base_power: float | None = None,
+    switching_off_power: float | None = None,
+    switching_on_power: float | None = None,
+    sleeping_power: float | None = None,
+    switching_on_time: int | None = None,
+    switching_off_time: int | None = None
 ) -> Dict[str, Any]:
-    base_speed = 1.0
-    underclock_power = base_power * 0.7
-    underclock_speed = base_speed * 0.7
-    overclock_power = base_power * 1.3
-    overclock_speed = base_speed * 1.3
+    # ---- randomized specs per machine ----
+    # Base perf/power
+    base_power = base_power if base_power is not None else random.uniform(
+        150.0, 300.0)
+    base_speed = random.uniform(0.8, 1.3)  # vary compute capability
+
+    # DVFS multipliers
+    u_factor = random.uniform(0.5, 0.9)    # underclock scale
+    o_factor = random.uniform(1.1, 1.6)    # overclock scale
+
+    underclock_power = base_power * random.uniform(0.55, 0.9)
+    overclock_power = base_power * random.uniform(1.1, 1.6)
+    underclock_speed = base_speed * u_factor
+    overclock_speed = base_speed * o_factor
+
+    # Idle / transition powers
+    sleeping_power = sleeping_power if sleeping_power is not None else random.uniform(
+        3.0, 20.0)
+    switching_off_power = switching_off_power if switching_off_power is not None else random.uniform(
+        5.0, 22.0)
+    switching_on_power = switching_on_power if switching_on_power is not None else random.uniform(
+        5.0, 22.0)
+
+    # Transition times (allow zeros and varied latencies)
+    switching_off_time = switching_off_time if switching_off_time is not None else random.randint(
+        1, 20)
+    switching_on_time = switching_on_time if switching_on_time is not None else random.randint(
+        1, 20)
 
     return {
         "id": machine_id,
         "dvfs_profiles": {
             "underclock_1": {"power": underclock_power, "compute_speed": underclock_speed},
-            "base": {"power": base_power, "compute_speed": base_speed},
-            "overclock_1": {"power": overclock_power, "compute_speed": overclock_speed},
+            "base":         {"power": base_power,       "compute_speed": base_speed},
+            "overclock_1":  {"power": overclock_power,  "compute_speed": overclock_speed},
         },
         "dvfs_mode": "base",
         "states": {
             "active": {
                 "power": "from_dvfs",
                 "compute_speed": "from_dvfs",
-                "can_run_jobs": True,
                 "transitions": [{"state": "switching_off", "transition_time": 0}],
             },
             "switching_off": {
                 "power": switching_off_power,
                 "compute_speed": "from_dvfs",
-                "can_run_jobs": False,
                 "transitions": [{"state": "sleeping", "transition_time": switching_off_time}],
             },
             "switching_on": {
                 "power": switching_on_power,
                 "compute_speed": "from_dvfs",
-                "can_run_jobs": False,
                 "transitions": [{"state": "active", "transition_time": switching_on_time}],
             },
             "sleeping": {
                 "power": sleeping_power,
                 "compute_speed": "from_dvfs",
-                "can_run_jobs": False,
                 "transitions": [{"state": "switching_on", "transition_time": 0}],
             },
         },
@@ -253,9 +311,10 @@ def generate_machine(
 
 
 def generate_cluster(num_node: int) -> Dict[str, Any]:
-    machines = [generate_machine(i, 210, 9, 9, 9, 5, 5)
-                for i in range(num_node)]
+    # each machine gets its own randomized characteristics
+    machines = [generate_machine(i) for i in range(num_node)]
     return {"machines": machines}
+
 
 # ---------------------------------------------------------------------------
 # Utilities

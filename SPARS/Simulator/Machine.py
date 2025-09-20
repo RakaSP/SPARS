@@ -1,6 +1,3 @@
-import json
-
-
 class Machine:
     def __init__(self, platform_info, start_time):
 
@@ -27,7 +24,6 @@ class Machine:
                 'power': power,
                 'compute_speed': compute_speed,
                 'transitions': active_state['transitions'],
-                'can_run_jobs': active_state['can_run_jobs'],
                 'job_id': None,
                 'reserved': False
             }
@@ -87,7 +83,6 @@ class Machine:
             node['compute_speed'] = state_def['compute_speed']
 
         node['transitions'] = state_def['transitions']
-        node['can_run_jobs'] = state_def['can_run_jobs']
 
     def switch_on(self, nodes):
         for node in self._get_nodes_by_ids(nodes):

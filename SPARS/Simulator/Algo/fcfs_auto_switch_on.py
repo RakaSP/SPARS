@@ -12,6 +12,7 @@ class FCFSAuto(BaseAlgorithm):
     def FCFSAuto(self):
         waiting_queue = [
             job for job in self.waiting_queue if job['job_id'] not in self.scheduled]
+
         for job in waiting_queue:
             if job['res'] <= len(self.available) + len(self.inactive):
                 if job['res'] <= len(self.available):
@@ -31,6 +32,8 @@ class FCFSAuto(BaseAlgorithm):
                         'type': 'execution_start',
                         'nodes': allocated_ids
                     }
+                    if event['job_id'] == 34668:
+                        input('fa 36')
                     if self.timeout:
                         super().remove_from_timeout_list(allocated_ids)
 
@@ -73,6 +76,8 @@ class FCFSAuto(BaseAlgorithm):
                         'type': 'execution_start',
                         'nodes': reserved_node_ids
                     }
+                    if event['job_id'] == 34668:
+                        input('fa 78')
 
                     if self.timeout:
                         super().remove_from_timeout_list(reserved_node_ids)

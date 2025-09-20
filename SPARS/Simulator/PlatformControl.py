@@ -36,6 +36,15 @@ class PlatformControl:
     def get_state(self):
         return self.machines.nodes
 
+    def validate_duplication(self, node_ids):
+        is_duplicate = len(node_ids) != len(set(node_ids))
+
+        if is_duplicate:
+            # Find the duplicate values
+            seen = set()
+            duplicates = [x for x in node_ids if x in seen or seen.add(x)]
+            raise RuntimeError(f"Duplicate node_ids found: {duplicates}")
+
     def update_resources_agenda_global(self, current_time):
         for resource_agenda in self.resources_agenda:
             node = self.machines.nodes[resource_agenda['id']]
@@ -54,9 +63,13 @@ class PlatformControl:
                 resource_agenda['release_time'] = release_time
 
     def compute(self, node_ids, job, current_time):
-        if len(node_ids) < job['res']:
+        self.validate_duplication(node_ids)
+
+        if len(node_ids) != job['res']:
             raise RuntimeError(
-                f"Allocated nodes {node_ids} is not sufficient for job {job['job_id']}, requested resources={job['res']}")
+                f"Resource allocation mismatch for job '{job['job_id']}': "
+                f"Requested {job['res']} nodes, but allocated {len(node_ids)}."
+            )
         success = self.machines.allocate(node_ids, job['job_id'])
 
         if not success:
@@ -74,8 +87,8 @@ class PlatformControl:
             requested_compute_demand = job['reqtime']
             requested_finish_time = current_time + \
                 (requested_compute_demand / compute_power)
-            event = {'job_id': job['job_id'], 'type': 'execution_finished', 'nodes': node_ids,
-                     'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'actual_finish_time': actual_finish_time, 'req_finish_time': requested_finish_time}
+            event = {'job_id': job['job_id'], 'type': 'execution_finished', 'res': job['res'], 'nodes': node_ids,
+                     'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'reqtime': job['reqtime'], 'req_finish_time': requested_finish_time, 'runtime': job['runtime'], 'actual_finish_time': actual_finish_time}
 
             finish_time = min(requested_finish_time, actual_finish_time)
             self.update_resource_agenda(node_ids, finish_time)
@@ -91,14 +104,15 @@ class PlatformControl:
             requested_compute_demand = job['reqtime']
             requested_finish_time = current_time + \
                 (requested_compute_demand / compute_power)
-            event = {'job_id': job['job_id'], 'type': 'execution_finished', 'nodes': node_ids,
-                     'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'actual_finish_time': actual_finish_time, 'req_finish_time': requested_finish_time}
+            event = {'job_id': job['job_id'], 'type': 'execution_finished', 'res': job['res'], 'nodes': node_ids,
+                     'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'reqtime': job['reqtime'], 'req_finish_time': requested_finish_time, 'runtime': job['runtime'], 'actual_finish_time': actual_finish_time},
 
             finish_time = max(requested_finish_time, actual_finish_time)
             self.update_resource_agenda(node_ids, finish_time)
             return actual_finish_time, event
 
     def change_dvfs_mode(self, node_ids, mode):
+        self.validate_duplication(node_ids)
         self.machines.change_dvfs_mode(node_ids, mode)
         return {'type': 'change_dvfs_mode', 'node': node_ids, 'mode': mode}
 
@@ -112,15 +126,19 @@ class PlatformControl:
         return terminated
 
     def reserve_node(self, node_ids):
+        self.validate_duplication(node_ids)
         self.machines.reserve(node_ids)
 
     def turn_on(self, node_ids):
+        self.validate_duplication(node_ids)
         self.machines.turn_on(node_ids)
 
     def turn_off(self, node_ids):
+        self.validate_duplication(node_ids)
         self.machines.turn_off(node_ids)
 
     def switch_off(self, node_ids, current_time):
+        self.validate_duplication(node_ids)
         # Trigger switch-off now
         self.machines.switch_off(node_ids)
 
@@ -175,6 +193,7 @@ class PlatformControl:
         return result
 
     def switch_on(self, node_ids, current_time):
+        self.validate_duplication(node_ids)
         # Trigger switch-on now
         self.machines.switch_on(node_ids)
 

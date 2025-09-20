@@ -285,9 +285,9 @@ class Simulator:
             record_job_execution=record_job_execution,
         )
 
-        if self.num_finished_jobs == self.num_jobs:
-            message = self.on_finish()
-            return message
+        # if self.num_finished_jobs == self.num_jobs:
+        #     message = self.on_finish()
+        #     return message
 
         if need_rl:
             self.push_event(self.current_time, {'type': 'CALL_RL'})
@@ -307,6 +307,10 @@ class Simulator:
                 self.jobs_manager.scheduled_queue,
                 self.PlatformControl.resources_agenda
             )
+            logger.info(
+                f"[{now}] Scheduler Message: {scheduler_message}")
+            if now == 2349:
+                input()
             for _data in scheduler_message:
                 timestamp = _data['timestamp']
                 for event in _data['events']:

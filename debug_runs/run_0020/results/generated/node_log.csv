@@ -1,4 +1,0 @@
-dvfs_mode,state,submission_time,start_time,finish_time,nodes,job_id,terminated
-base,active,,0,16,0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20,-1,
-base,switching_off,,16,21,0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20,-2,
-base,sleeping,,21,824,0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20,-4,

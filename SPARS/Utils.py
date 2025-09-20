@@ -274,33 +274,74 @@ def write_energy_log(simulator, output_folder: str, filename: str = "energy_log.
     return path
 
 
-def build_metrics_df(jobs_execution_log: list, energy_log: list) -> pd.DataFrame:
+def _sum_states_dur(states_dur: list) -> dict:
+    """
+    Sum durations across all nodes and all DVFS modes for each state bucket.
+    Expected keys per node: active_idle, active_compute, switching_off, switching_on, sleeping.
+    Returns a dict with totals for each bucket (float seconds).
+    """
+    totals = {
+        "total_active_idle": 0.0,
+        "total_active_compute": 0.0,
+        "total_switching_off": 0.0,
+        "total_switching_on": 0.0,
+        "total_sleeping": 0.0,
+    }
+    if not states_dur:
+        totals["total_time_all_states"] = 0.0
+        return totals
+
+    for entry in states_dur:
+        # each value is a dict of dvfs_mode -> duration
+        for key, out_key in [
+            ("active_idle", "total_active_idle"),
+            ("active_compute", "total_active_compute"),
+            ("switching_off", "total_switching_off"),
+            ("switching_on", "total_switching_on"),
+            ("sleeping", "total_sleeping"),
+        ]:
+            bucket = entry.get(key, {})
+            if isinstance(bucket, dict):
+                totals[out_key] += float(pd.to_numeric(pd.Series(bucket),
+                                         errors="coerce").sum())
+
+    totals["total_time_all_states"] = sum(totals.values())
+    return totals
+
+
+def build_metrics_df(jobs_execution_log: list, energy_log: list, states_dur: list | None = None) -> pd.DataFrame:
     """
     Return a 1-row DataFrame with:
-      total_waiting_time, total_energy_waste
+      - total_waiting_time
+      - total_energy_waste
+      - totals of node state durations aggregated over all nodes & dvfs:
+        total_active_idle, total_active_compute, total_switching_off, total_switching_on, total_sleeping, total_time_all_states
     waiting_time is computed as start_time - subtime (seconds if datetimes).
     """
     # reuse existing builders
     wt_df = build_waiting_time_df(
-        jobs_execution_log) if jobs_execution_log else pd.DataFrame(columns=['waiting_time'])
+        jobs_execution_log) if jobs_execution_log else pd.DataFrame(columns=["waiting_time"])
     en_df = build_energy_df(energy_log) if energy_log else pd.DataFrame(
-        columns=['energy_waste'])
+        columns=["energy_waste"])
 
-    total_waiting = pd.to_numeric(wt_df.get('waiting_time', pd.Series(
-        dtype=float)), errors='coerce').sum(min_count=1)
-    total_waste = pd.to_numeric(en_df.get('energy_waste', pd.Series(
-        dtype=float)), errors='coerce').sum(min_count=1)
+    total_waiting = pd.to_numeric(wt_df.get("waiting_time", pd.Series(
+        dtype=float)), errors="coerce").sum(min_count=1)
+    total_waste = pd.to_numeric(en_df.get("energy_waste", pd.Series(
+        dtype=float)), errors="coerce").sum(min_count=1)
 
-    # if no data or all NaN, make them 0.0
     if pd.isna(total_waiting):
         total_waiting = 0.0
     if pd.isna(total_waste):
         total_waste = 0.0
 
-    return pd.DataFrame([{
-        'total_waiting_time': float(total_waiting),
-        'total_energy_waste': float(total_waste),
-    }])
+    state_totals = _sum_states_dur(states_dur or [])
+
+    row = {
+        "total_waiting_time": float(total_waiting),
+        "total_energy_waste": float(total_waste),
+        **state_totals,
+    }
+    return pd.DataFrame([row])
 
 
 def write_metrics_log(simulator, output_folder: str, filename: str = "metrics.csv") -> str:
@@ -309,10 +350,45 @@ def write_metrics_log(simulator, output_folder: str, filename: str = "metrics.cs
     """
     os.makedirs(output_folder, exist_ok=True)
     metrics_df = build_metrics_df(
-        simulator.Monitor.jobs_execution_log, simulator.Monitor.energy)
+        simulator.Monitor.jobs_execution_log,
+        simulator.Monitor.energy,
+        simulator.Monitor.states_dur,   # <-- new
+    )
     path = os.path.join(output_folder, filename)
     metrics_df.to_csv(path, index=False)
     return path
+
+
+def write_state_switch_csv(simulator, output_folder: str, filename: str = "state_switch.csv") -> str:
+    """
+    Save `state_switch` (list of dicts) to CSV with ordered columns:
+    time, nb_sleeping, nb_switching_on, nb_switching_off, nb_idle, nb_computing.
+
+    Returns the written filepath.
+    """
+    state_switch = simulator.Monitor.state_switch
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    cols = ["time", "nb_sleeping", "nb_switching_on",
+            "nb_switching_off", "nb_idle", "nb_computing"]
+    df = pd.DataFrame(state_switch)
+
+    # ensure all expected columns exist (missing -> NaN)
+    for c in cols:
+        if c not in df.columns:
+            df[c] = pd.NA
+
+    # order columns
+    df = df[cols]
+
+    # optional: coerce numeric columns (except 'time' if it's datetime-like strings)
+    for c in cols:
+        if c != "time":
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    path = os.path.join(output_folder, filename)
+    df.to_csv(path, index=False)
 
 
 def log_output(simulator, output_folder):
@@ -327,6 +403,7 @@ def log_output(simulator, output_folder):
     write_waiting_time_log(simulator, output_folder)
     write_energy_log(simulator, output_folder)
     write_metrics_log(simulator, output_folder)
+    write_state_switch_csv(simulator, output_folder)
 
     node_log = process_node_job_data(
         simulator.Monitor.states_hist, raw_job_log)
