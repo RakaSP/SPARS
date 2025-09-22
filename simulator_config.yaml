@@ -1,10 +1,10 @@
 paths:
   workload: "workloads/nasa-20-back.json"
   platform: "platforms/platform-nasa-128.json"
-  output: "results/nasa_20_back_timeout_300"
+  output: "results/nasa_20_back_timeout_300_easy_batsim"
 
 run:
-  algorithm: "easy_auto"
+  algorithm: "easy_batsim"
   overrun_policy: "terminate"
   timeout: 300
   # start_time can be:
@@ -35,5 +35,5 @@ rl:
         lr: 0.0003 # optional; else uses rl.learning_rate
 
 logging:
-  level: "INFO"
+  level: "ERROR"
   file: "results/simulation.log"

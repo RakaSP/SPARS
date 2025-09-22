@@ -168,11 +168,10 @@ class Monitor:
             if ecr_value == "from_dvfs":
                 ecr_value = ecr_entry["dvfs_profiles"][node["dvfs_mode"]]
 
-            if node["job_id"] is None:
-                # active but idle OR non-computing states → waste
-                e_entry["energy_waste"] += ecr_value * dt
-            else:
+            if (node['job_id'] is not None and node['state'] == 'active') or node['state'] == 'sleeping':
                 e_entry["energy_effective"] += ecr_value * dt
+            else:
+                e_entry["energy_waste"] += ecr_value * dt
 
             e_entry["energy_consumption"] = e_entry["energy_effective"] + \
                 e_entry["energy_waste"]

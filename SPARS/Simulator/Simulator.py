@@ -79,11 +79,10 @@ class Simulator:
         self.jobs_manager = JobsManager()
         self.start_time = start_time
         self.scheduler = Scheduler(
-            self.PlatformControl.get_state(),
-            self.jobs_manager.waiting_queue,
+            self.PlatformControl.machines,
+            self.jobs_manager,
             algorithm,
             start_time,
-            self.jobs_manager,
             timeout
         )
 
@@ -232,18 +231,16 @@ class Simulator:
                     need_rl = True
 
             elif etype == 'arrival':
-                self.jobs_manager.add_job_to_waiting_queue(event)
                 record_job_arrival.append(event)
+                self.jobs_manager.add_job_to_waiting_queue(event)
                 if self.rl and self.rl_type == 'continuous':
                     need_rl = True
 
-            elif etype == 'reserve':
-                self.PlatformControl.reserve_node(event['nodes'])
-
             elif etype == 'execution_start':
                 if event['job_id'] in self.jobs_manager.active_jobs_id:
-                    logger.info(f"Job {event['job_id']} is already started")
-                    continue
+                    raise RuntimeError(
+                        f"Job {event['job_id']} is already executed"
+                    )
 
                 result = self.PlatformControl.compute(
                     event['nodes'], event, self.current_time)
@@ -252,11 +249,12 @@ class Simulator:
                     record_job_submission.append(event)
                     finish_time, ev = result
                     self.jobs_manager.remove_job_from_scheduled_queue(
-                        event['job_id'], 'execution_start')
+                        event['job_id'], type='execution_start')
                     self.push_event(finish_time, ev)
                 else:
-                    self.jobs_manager.remove_job_from_scheduled_queue(
-                        event['job_id'], 'fail')
+                    raise RuntimeError(
+                        f"Job {event['job_id']} failed to execute"
+                    )
 
             elif etype == 'execution_finished':
                 terminated = self.PlatformControl.release(
@@ -301,16 +299,11 @@ class Simulator:
             self.proceed()
 
             scheduler_message = self.scheduler.schedule(
-                self.current_time,
-                self.PlatformControl.get_state(),
-                self.jobs_manager.waiting_queue,
-                self.jobs_manager.scheduled_queue,
-                self.PlatformControl.resources_agenda
-            )
+                self.current_time)
+
             logger.info(
-                f"[{now}] Scheduler Message: {scheduler_message}")
-            if now == 2349:
-                input()
+                f"[{self.current_time}] Scheduler Message: {scheduler_message}")
+
             for _data in scheduler_message:
                 timestamp = _data['timestamp']
                 for event in _data['events']:

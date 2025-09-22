@@ -1,44 +1,116 @@
-from SPARS.Simulator.Algo.BaseAlgorithm import BaseAlgorithm
+from .BaseAlgorithm import BaseAlgorithm
 
 
 class FCFSNormal(BaseAlgorithm):
-    def schedule(self, new_state, waiting_queue, scheduled_queue, resources_agenda):
-        super().prep_schedule(new_state, waiting_queue, scheduled_queue, resources_agenda)
+    """
+    First-Come-First-Served using only IDLE nodes.
+
+    Node selection is energy-aware:
+      Minimize ( sum(compute_power) / min(compute_speed) ).
+    Tie-breaks:
+      1) Shorter remaining idle-timeout first (closer to switch-off => pick sooner)
+      2) Lower total power
+      3) Lexicographically smaller node-id list
+    Assumes each node has 'compute_speed' and 'compute_power'.
+    """
+
+    # ---------- public ----------
+    def schedule(self):
+        super().prep_schedule()
         self.FCFSNormal()
+
+        super().events_builder()
         if self.timeout is not None:
             super().timeout_policy()
         return self.events
 
     def FCFSNormal(self):
-        # if self.current_time == 168:
-        #     print('x')
-        waiting_queue = [
-            job for job in self.waiting_queue if job['job_id'] not in self.scheduled]
-        for job in waiting_queue:
-            if job['res'] <= len(self.available) + len(self.inactive):
-                if job['res'] <= len(self.available):
-                    allocated_nodes = self.available[:job['res']]
-                    allocated_ids = [node['id'] for node in allocated_nodes]
-                    self.available = self.available[job['res']:]
-                    self.allocated.extend(allocated_nodes)
-                    self.scheduled.append(job['job_id'])
-
-                    event = {
-                        'job_id': job['job_id'],
-                        'subtime': job['subtime'],
-                        'runtime': job['runtime'],
-                        'reqtime': job['reqtime'],
-                        'res': job['res'],
-                        'type': 'execution_start',
-                        'nodes': allocated_ids
-                    }
-                    if self.timeout:
-                        super().remove_from_timeout_list(allocated_ids)
-                    # if event['job_id'] == 25:
-                    #     print('fn 36')
-                    self.jobs_manager.add_job_to_scheduled_queue(
-                        event['job_id'], allocated_ids, self.current_time)
-                    super().push_event(self.current_time, event)
-
-            else:
+        for job in self.waiting_queue[:]:
+            required_nodes = int(job["res"])
+            if len(self.idle) < required_nodes:
                 break
+
+            selected_nodes = self._select_nodes_energy_aware(
+                required_nodes, self.idle)
+            if not selected_nodes:
+                break
+            super().allocate(job, selected_nodes)
+
+    # ---------- internals ----------
+    def _remaining_idle_timeout(self, node_id: int) -> float:
+        """
+        Remaining time until this idle node would be switched off by timeout_policy.
+        If not tracked, return a large number so it sorts to the end.
+        """
+        if not self.timeout_list:
+            return float("inf")
+        for entry in self.timeout_list:
+            if entry.get("node_id") == node_id:
+                return max(0.0, float(entry.get("time", self.current_time) - self.current_time))
+        return float("inf")
+
+    def _select_nodes_energy_aware(self, required_nodes: int, _candidates):
+        """
+        Choose 'required_nodes' from self.idle to minimize:
+            score = (sum power) / min speed
+        Implementation:
+          - Gather unique speed thresholds among idle nodes.
+          - For each threshold s: keep candidates with speed >= s.
+          - If at least 'required_nodes' exist: pick the 'required_nodes' lowest-power nodes.
+          - Compute score = sum(power) / s and keep the best set.
+        Tie-breaks:
+          - Shorter sum of remaining idle-timeout (prefer nodes closer to switch-off)
+          - Lower total power
+          - Smaller node id list
+        """
+        if len(_candidates) < required_nodes:
+            return None
+
+        # Normalize records
+        normalized = []
+        for node in _candidates:
+            speed = float(node.get("compute_speed", 1.0))
+            power = float(node.get("compute_power", 1.0))
+            rem_timeout = self._remaining_idle_timeout(node["id"])
+            normalized.append({
+                "node": node,
+                "speed": speed,
+                "power": power,
+                "remaining_timeout": rem_timeout,
+            })
+
+        # Unique speeds (thresholds), high to low
+        speed_levels = sorted({item["speed"]
+                              for item in normalized}, reverse=True)
+
+        best_key = None
+        best_pick = None
+
+        for threshold_speed in speed_levels:
+            candidates = [
+                item for item in normalized if item["speed"] >= threshold_speed]
+            if len(candidates) < required_nodes:
+                continue
+
+            # Pick lowest-power nodes first; if same power, pick those closer to timeout
+            candidates.sort(key=lambda it: (
+                it["power"], it["remaining_timeout"], it["node"]["id"]))
+            picked = candidates[:required_nodes]
+
+            total_power = sum(it["power"] for it in picked)
+            # runtime cancels for comparisons; use threshold as the bottleneck speed
+            energy_score = total_power / \
+                (threshold_speed if threshold_speed > 0 else 1.0)
+            total_remaining_timeout = sum(
+                it["remaining_timeout"] for it in picked)
+            id_list = sorted(it["node"]["id"] for it in picked)
+
+            # Compare by (energy_score, total_remaining_timeout, total_power, ids)
+            candidate_key = (
+                energy_score, total_remaining_timeout, total_power, id_list)
+
+            if best_key is None or candidate_key < best_key:
+                best_key = candidate_key
+                best_pick = [it["node"] for it in picked]
+
+        return best_pick

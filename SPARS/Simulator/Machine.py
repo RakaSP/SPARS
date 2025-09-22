@@ -25,7 +25,6 @@ class Machine:
                 'compute_speed': compute_speed,
                 'transitions': active_state['transitions'],
                 'job_id': None,
-                'reserved': False
             }
 
             self.nodes.append(node)

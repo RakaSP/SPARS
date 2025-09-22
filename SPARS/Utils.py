@@ -1,3 +1,5 @@
+from ast import literal_eval  # if used elsewhere
+import math
 import warnings
 import pandas as pd
 import ast
@@ -313,9 +315,14 @@ def build_metrics_df(jobs_execution_log: list, energy_log: list, states_dur: lis
     """
     Return a 1-row DataFrame with:
       - total_waiting_time
+      - mean_waiting_time
       - total_energy_waste
+      - total_energy_consumption
+      - energy_effective (= total_energy_consumption - total_energy_waste)
       - totals of node state durations aggregated over all nodes & dvfs:
-        total_active_idle, total_active_compute, total_switching_off, total_switching_on, total_sleeping, total_time_all_states
+        total_active_idle, total_active_compute, total_switching_off, total_switching_on,
+        total_sleeping, total_time_all_states
+
     waiting_time is computed as start_time - subtime (seconds if datetimes).
     """
     # reuse existing builders
@@ -324,21 +331,52 @@ def build_metrics_df(jobs_execution_log: list, energy_log: list, states_dur: lis
     en_df = build_energy_df(energy_log) if energy_log else pd.DataFrame(
         columns=["energy_waste"])
 
-    total_waiting = pd.to_numeric(wt_df.get("waiting_time", pd.Series(
-        dtype=float)), errors="coerce").sum(min_count=1)
-    total_waste = pd.to_numeric(en_df.get("energy_waste", pd.Series(
-        dtype=float)), errors="coerce").sum(min_count=1)
+    # Waiting-time aggregates
+    wt_series = pd.to_numeric(
+        wt_df.get("waiting_time", pd.Series(dtype=float)), errors="coerce")
+    total_waiting = wt_series.sum(min_count=1)
+    mean_waiting = wt_series.mean() if not wt_series.empty else float("nan")
 
+    # Energy aggregates
+    waste_series = pd.to_numeric(
+        en_df.get("energy_waste", pd.Series(dtype=float)), errors="coerce")
+    total_waste = waste_series.sum(min_count=1)
+
+    # Try several common column names for total consumption
+    cons_col_candidates = ["energy_consumption",
+                           "energy_total", "consumed_energy", "energy"]
+    cons_series = None
+    for col in cons_col_candidates:
+        if col in en_df.columns:
+            cons_series = pd.to_numeric(en_df[col], errors="coerce")
+            break
+
+    if cons_series is not None:
+        total_consumption = cons_series.sum(min_count=1)
+        energy_effective = total_consumption - \
+            (total_waste if pd.notna(total_waste) else 0.0)
+    else:
+        total_consumption = float("nan")
+        energy_effective = float("nan")
+
+    # NaN-safe defaults to 0.0 for totals; keep mean as NaN if unavailable
     if pd.isna(total_waiting):
         total_waiting = 0.0
     if pd.isna(total_waste):
         total_waste = 0.0
+    if pd.isna(total_consumption):
+        total_consumption = 0.0
+    if pd.isna(energy_effective):
+        energy_effective = 0.0
 
     state_totals = _sum_states_dur(states_dur or [])
 
     row = {
         "total_waiting_time": float(total_waiting),
+        "mean_waiting_time": float(mean_waiting) if pd.notna(mean_waiting) else 0.0,
         "total_energy_waste": float(total_waste),
+        "total_energy_consumption": float(total_consumption),
+        "energy_effective": float(energy_effective),
         **state_totals,
     }
     return pd.DataFrame([row])
@@ -352,7 +390,7 @@ def write_metrics_log(simulator, output_folder: str, filename: str = "metrics.cs
     metrics_df = build_metrics_df(
         simulator.Monitor.jobs_execution_log,
         simulator.Monitor.energy,
-        simulator.Monitor.states_dur,   # <-- new
+        simulator.Monitor.states_dur,
     )
     path = os.path.join(output_folder, filename)
     metrics_df.to_csv(path, index=False)

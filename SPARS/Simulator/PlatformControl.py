@@ -73,8 +73,9 @@ class PlatformControl:
         success = self.machines.allocate(node_ids, job['job_id'])
 
         if not success:
-            logger.info(f'Job {job} failed to execute')
-            return None
+            raise RuntimeError(
+                f"Job {job['id']} failed to execute"
+            )
 
         if self.overrun_policy == 'terminate':
             compute_power = min(node['compute_speed']

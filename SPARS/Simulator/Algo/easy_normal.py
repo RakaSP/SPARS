@@ -1,226 +1,192 @@
 from .fcfs_normal import FCFSNormal
-from itertools import combinations
 from bisect import bisect_left
 
 
 class EASYNormal(FCFSNormal):
-    def schedule(self, new_state, waiting_queue, scheduled_queue, resources_agenda):
-        super().prep_schedule(new_state, waiting_queue, scheduled_queue, resources_agenda)
+    def schedule(self):
+        super().prep_schedule()
         super().FCFSNormal()
 
         self.backfill()
-
+        super().events_builder()
         if self.timeout is not None:
             super().timeout_policy()
 
         return self.events
 
-    def find_node_combination(self, p_start_t, compute_demand, nodes, next_releases, x):
-        """
-        Returns a tuple (best_combo, best_finish_time)
-        - best_combo: list[dict node] or None
-        - best_finish_time: float (0 if None)
-
-        Idea:
-        For a cutoff r (candidate "max activation delay"), a combo of size x is feasible iff
-            min_speed >= compute_demand / (p_start_t - r)
-        using only nodes with release_time <= r.
-        We scan r across unique release times (ascending), keep eligible nodes in a list
-        sorted by speed, and check feasibility with a bisect. This avoids combinations().
-        """
-        n = len(nodes)
-        if x > n or x <= 0:
-            return None
-
-        # --- Precompute release times and filter impossible nodes early
-        release_by_id = {e['id']: e['release_time'] for e in next_releases}
-        cand = []
-        for nd in nodes:
-            s = float(nd.get('compute_speed', 0) or 0.0)
-            if s <= 0:
-                continue
-            rid = nd['id']
-            r = float(release_by_id.get(rid, 0.0))
-            # If r >= p_start_t, this node can never finish a positive-demand job before p_start_t
-            if r >= p_start_t:
-                continue
-            cand.append((r, s, nd))  # (release_time, speed, node_ref)
-
-        if len(cand) < x:
-            return None
-
-        # Sort candidates by release_time ascending
-        cand.sort(key=lambda t: t[0])
-        unique_r = sorted(set(r for r, _, _ in cand))
-
-        # We'll maintain a list of eligible nodes (those with release_time <= r), sorted by speed asc
-        eligible = []              # list of (speed, node_ref, release_time)
-        eligible_speeds = []       # parallel list of speeds for bisect
-        idx_cand = 0
-        best_finish_time = 0.0
-        best_combo = None
-
-        for r in unique_r:
-            # Add all nodes with release_time == r into eligible
-            while idx_cand < len(cand) and cand[idx_cand][0] <= r:
-                ri, si, ndi = cand[idx_cand]
-                # insert by speed (ascending)
-                pos = bisect_left(eligible_speeds, si)
-                eligible_speeds.insert(pos, si)
-                eligible.insert(pos, (si, ndi, ri))
-                idx_cand += 1
-
-            # Compute required minimum speed at this cutoff
-            remain = p_start_t - r
-            if remain <= 0:
-                continue  # impossible at this r
-
-            min_speed_req = compute_demand / remain
-
-            # Count how many eligible nodes have speed >= min_speed_req
-            pos = bisect_left(eligible_speeds, min_speed_req)
-            avail = len(eligible_speeds) - pos
-            if avail < x:
-                continue  # not feasible at this r
-
-            # Choose the x *slowest* nodes that still meet the threshold (tight finish time)
-            # [(speed, node, release_time), ...]
-            chosen = eligible[pos: pos + x]
-            speeds = [t[0] for t in chosen]
-            nodes_sel = [t[1] for t in chosen]
-            rel_times = [t[2] for t in chosen]
-
-            s_min = min(speeds)                     # == eligible_speeds[pos]
-            # may be <= r; use the actual max of chosen
-            r_max = max(rel_times)
-            finish_time = r_max + (compute_demand / s_min)
-
-            # Keep the latest finish time that still fits
-            if finish_time <= p_start_t and finish_time > best_finish_time:
-                best_finish_time = finish_time
-                best_combo = nodes_sel
-
-        return best_combo
-
     def backfill(self):
 
-        waiting_queue = [
-            job for job in self.waiting_queue if job['job_id'] not in self.scheduled]
-        if len(waiting_queue) > 2:
-            p_job = waiting_queue[0]
+        if len(self.waiting_queue) > 2:
+            p_job = self.waiting_queue[0]
 
-            backfilling_queue = waiting_queue[1:]
-
-            reserved_nodes = self.allocated
-
-            not_reserved_nodes = [
-                node for node in self.state if node['id'] not in reserved_nodes]
-
-            next_releases = self.resources_agenda
-
-            next_releases = sorted(
-                next_releases,
-                key=lambda x: (x['release_time'], x['id'])
-            )
-
-            if len(next_releases) < p_job['res']:
-                return
-
+            backfill_queue = self.waiting_queue[1:]
+            next_releases = sorted(self.resource_agenda,
+                                   key=lambda a: a['release_time'])
             last_host = next_releases[p_job['res'] - 1]
             p_start_t = last_host['release_time']
 
             candidates = [r['id']
                           for r in next_releases if r['release_time'] <= p_start_t]
-            head_job_reservation_ids = candidates[-p_job['res']:]
+            head_job_reservation = candidates[-p_job['res']:]
 
-            not_reserved_nodes = [
-                r for r in not_reserved_nodes if r['id'] not in head_job_reservation_ids]
+            for job in backfill_queue:
+                available = list(self.idle)
+                not_reserved = [
+                    node for node in available if node['id'] not in head_job_reservation]
 
-            for job in backfilling_queue:
-
-                allocated_ids = [node['id'] for node in self.allocated]
-                not_computing_resource_ids = [
-                    node['id'] for node in self.state if node['job_id'] is None and node['id'] not in allocated_ids]
-                not_reserved_ids = [
-                    h for h in not_computing_resource_ids if h not in head_job_reservation_ids]
-
-                available_resources_not_reserved = [
-                    node for node in self.available if node['id'] in not_reserved_ids]
-
-                if job['res'] <= len(not_reserved_ids):
-                    if job['res'] <= len(available_resources_not_reserved):
-                        allocated_nodes = available_resources_not_reserved[:job['res']]
-                        allocated_ids = [node['id']
-                                         for node in allocated_nodes]
-
-                        event = {
-                            'job_id': job['job_id'],
-                            'subtime': job['subtime'],
-                            'runtime': job['runtime'],
-                            'reqtime': job['reqtime'],
-                            'res': job['res'],
-                            'type': 'execution_start',
-                            'nodes': allocated_ids
-                        }
-                        if self.timeout:
-                            super().remove_from_timeout_list(allocated_ids)
-
-                        self.available = [
-                            node for node in self.available if node['id'] not in allocated_ids]
-                        self.allocated.extend(allocated_nodes)
-                        self.jobs_manager.add_job_to_scheduled_queue(
-                            event['job_id'], allocated_ids, self.current_time)
-                        super().push_event(self.current_time, event)
-                        """should update releases agenda, do the same for others'
-                        """
-
-                else:
-                    allocated_ids = [node['id']
-                                     for node in self.allocated]
-                    # since this algo doesnt want to have to_activate, so we should remove sleeping node
-                    not_computing_resource_ids = [
-                        node['id'] for node in self.state if node['job_id'] is None and node['id'] not in allocated_ids and node['state'] != 'sleeping' and node['state'] != 'switching_off' and node['state'] != 'switching_on']
-
-                    compute_demand = job['reqtime']
-                    free_nodes = [{'id': node['id'], 'compute_speed': node['compute_speed']}
-                                  for node in self.state if node['id'] in not_computing_resource_ids]
-
-                    combo = self.find_node_combination(
-                        p_start_t, compute_demand, free_nodes, next_releases, job['res'])
-
-                    if combo == None:
+                if job['res'] <= len(not_reserved):
+                    selected_nodes = super()._select_nodes_energy_aware(
+                        job['res'], not_reserved)
+                    if not selected_nodes:
                         continue
+                    super().allocate(job, selected_nodes)
+                else:
+                    # default arguments
+                    selected_nodes = self.find_node_combination(
+                        max_finish_time=p_start_t, job=job, candidates=available)
+                    if not selected_nodes:
+                        continue
+                    super().allocate(job, selected_nodes)
 
-                    inactive_ids = {
-                        n['id'] for n in (self.inactive or [])
-                        if isinstance(n, dict) and 'id' in n
-                    }
+    def find_node_combination(self, max_finish_time: float, job: dict, candidates: list):
+        """
+        Pick a size `job['res']` subset from `candidates` (idle-only upstream) that can finish before `max_finish_time`
+        without combinatorial explosion. This adapts your old sweep/bisect idea and uses the same scoring/tie-breaks
+        as _select_nodes_energy_aware.
 
-                    to_activate = [
-                        n for n in (combo or [])
-                        if isinstance(n, dict) and n.get('id') in inactive_ids
-                    ]
+        Feasibility model:
+        For any cutoff 'cutoff_release_time' (the max release time among the chosen nodes),
+            min_speed >= required_time / (max_finish_time - cutoff_release_time),
+        using only nodes with release_time <= cutoff_release_time.
 
-                    if len(to_activate) == 0:
-                        allocated_nodes = self.available[:job['res']]
-                        self.allocated.extend(allocated_nodes)
-                        allocated_ids = [node['id']
-                                         for node in allocated_nodes]
+        Scoring (consistent with _select_nodes_energy_aware):
+        score = (sum_power) / min_speed
+        tie-breaks: smaller sum(remaining_idle_timeout), then lower total power, then lexicographically smaller node IDs.
 
-                        event = {
-                            'job_id': job['job_id'],
-                            'subtime': job['subtime'],
-                            'runtime': job['runtime'],
-                            'reqtime': job['reqtime'],
-                            'res': job['res'],
-                            'type': 'execution_start',
-                            'nodes': allocated_ids
-                        }
-                        if self.timeout:
-                            super().remove_from_timeout_list(allocated_ids)
+        Returns: list[dict node] or None
+        """
+        required_nodes = int(job.get('res', 0))
+        if required_nodes <= 0:
+            return []
+        if not candidates or len(candidates) < required_nodes:
+            return None
 
-                        self.available = self.available[job['res']:]
-                        self.jobs_manager.add_job_to_scheduled_queue(
-                            event['job_id'], allocated_ids, self.current_time)
+        now = float(getattr(self, "current_time", 0.0))
+        required_time = float(job.get('reqtime', job.get('runtime', 0.0)))
 
-                        super().push_event(self.current_time, event)
+        # Build node_id -> release_time from the resource agenda
+        resource_agenda_by_id = self._agenda_by_id()
+        release_times_by_node_id = {
+            int(node_id): float(entry.get('release_at', now))
+            for node_id, entry in resource_agenda_by_id.items()
+        }
+
+        # Normalize candidates and filter obviously infeasible ones
+        normalized = []  # each: dict with node, node_id, speed, power, release_time, remaining_idle_timeout
+        for node in candidates:
+            node_id = int(node['id'])
+            speed = float(node.get('compute_speed', 0.0) or 0.0)
+            if speed <= 0.0:
+                continue
+            release_time = float(release_times_by_node_id.get(
+                node_id, node.get('release_time', now)))
+            if required_time > 0.0 and release_time >= float(max_finish_time):
+                # If it can't even start before the deadline for a positive required_time, skip
+                continue
+            power = float(node.get('compute_power', 0.0) or 0.0)
+            remaining_idle_timeout = float(
+                self._remaining_idle_timeout_seconds(node_id))
+            normalized.append({
+                'node': node,
+                'node_id': node_id,
+                'speed': speed,
+                'power': power,
+                'release_time': release_time,
+                'remaining_idle_timeout': remaining_idle_timeout
+            })
+
+        if len(normalized) < required_nodes:
+            return None
+
+        # If no work is required, just ensure start_time <= deadline and pick by tie-breaks
+        if required_time <= 0.0:
+            pool = [x for x in normalized if x['release_time']
+                    <= float(max_finish_time)]
+            if len(pool) < required_nodes:
+                return None
+            pool.sort(key=lambda x: (
+                x['power'], x['remaining_idle_timeout'], x['node_id']))
+            return [x['node'] for x in pool[:required_nodes]]
+
+        # Sweep unique cutoff release times (ascending) up to the deadline
+        normalized.sort(key=lambda x: x['release_time'])
+        cutoff_release_times = sorted({
+            x['release_time'] for x in normalized
+            if x['release_time'] <= float(max_finish_time)
+        })
+
+        # Maintain eligible nodes (release_time <= cutoff) sorted by speed ascending for bisect
+        # tuples: (speed, power, node_id, release_time, remaining_idle_timeout, node)
+        eligible_nodes = []
+        eligible_speeds = []      # parallel list of speeds for bisect
+        scan_index = 0
+
+        best_key = None
+        best_selection = None
+
+        for cutoff_release_time in cutoff_release_times:
+            # Extend eligible set with all nodes that have release_time <= cutoff
+            while scan_index < len(normalized) and normalized[scan_index]['release_time'] <= cutoff_release_time:
+                item = normalized[scan_index]
+                insert_pos = bisect_left(eligible_speeds, item['speed'])
+                eligible_speeds.insert(insert_pos, item['speed'])
+                eligible_nodes.insert(insert_pos, (
+                    item['speed'],
+                    item['power'],
+                    item['node_id'],
+                    item['release_time'],
+                    item['remaining_idle_timeout'],
+                    item['node']
+                ))
+                scan_index += 1
+
+            time_budget = float(max_finish_time) - float(cutoff_release_time)
+            if time_budget <= 0.0:
+                continue
+
+            min_speed_required = required_time / time_budget
+            threshold_pos = bisect_left(eligible_speeds, min_speed_required)
+            available = len(eligible_speeds) - threshold_pos
+            if available < required_nodes:
+                continue
+
+            # Choose the required number of slowest nodes that still meet the speed threshold
+            chosen = eligible_nodes[threshold_pos: threshold_pos + required_nodes]
+
+            # Verify timing (should be feasible by construction, but keep strict)
+            speeds = [t[0] for t in chosen]
+            powers = [t[1] for t in chosen]
+            node_ids = [t[2] for t in chosen]
+            release_times = [t[3] for t in chosen]
+            remaining_idle_timeouts = [t[4] for t in chosen]
+
+            min_speed = min(speeds)
+            if min_speed <= 0.0:
+                continue
+            start_time = max(release_times)
+            finish_time = start_time + (required_time / min_speed)
+            if finish_time > float(max_finish_time):
+                continue
+
+            total_power = sum(powers)
+            energy_score = total_power / min_speed
+            total_remaining_idle_timeout = sum(remaining_idle_timeouts)
+            node_ids_sorted = sorted(node_ids)
+
+            candidate_key = (energy_score, total_remaining_idle_timeout,
+                             total_power, node_ids_sorted)
+            if best_key is None or candidate_key < best_key:
+                best_key = candidate_key
+                best_selection = [t[5] for t in chosen]
+
+        return best_selection

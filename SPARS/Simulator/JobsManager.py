@@ -37,11 +37,10 @@ class JobsManager:
                 del self.waiting_queue[i]
                 break
 
-    def add_job_to_scheduled_queue(self, job_id, nodes, predicted_time):
+    def add_job_to_scheduled_queue(self, job_id, nodes):
         for job in self.waiting_queue:
             if job['job_id'] == job_id:
                 job['nodes'] = nodes
-                job['predicted_time'] = predicted_time
                 self.waiting_queue.remove(job)
                 self.scheduled_queue.append(job)
                 break
