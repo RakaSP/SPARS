@@ -273,7 +273,6 @@ class Simulator:
             elif etype == 'CALL_RL':
                 self.rl_tick_scheduled = False
 
-        self.PlatformControl.update_resources_agenda_global(self.current_time)
         self.Monitor.record(
             mode='after',
             machines=self.PlatformControl.machines,

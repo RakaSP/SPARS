@@ -4,7 +4,7 @@ paths:
   output: "results/nasa_20_back_timeout_300_easy_batsim"
 
 run:
-  algorithm: "easy_batsim"
+  algorithm: "easy_auto"
   overrun_policy: "terminate"
   timeout: 300
   # start_time can be:
@@ -35,5 +35,5 @@ rl:
         lr: 0.0003 # optional; else uses rl.learning_rate
 
 logging:
-  level: "ERROR"
+  level: "INFO"
   file: "results/simulation.log"

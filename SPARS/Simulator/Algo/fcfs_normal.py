@@ -1,3 +1,4 @@
+import math
 from .BaseAlgorithm import BaseAlgorithm
 
 
@@ -6,12 +7,12 @@ class FCFSNormal(BaseAlgorithm):
     First-Come-First-Served using only IDLE nodes.
 
     Node selection is energy-aware:
-      Minimize ( sum(compute_power) / min(compute_speed) ).
+      Minimize ( sum(power) / min(compute_speed) ).
     Tie-breaks:
       1) Shorter remaining idle-timeout first (closer to switch-off => pick sooner)
       2) Lower total power
       3) Lexicographically smaller node-id list
-    Assumes each node has 'compute_speed' and 'compute_power'.
+    Assumes each node has 'compute_speed' and 'power'.
     """
 
     # ---------- public ----------
@@ -42,24 +43,28 @@ class FCFSNormal(BaseAlgorithm):
         Remaining time until this idle node would be switched off by timeout_policy.
         If not tracked, return a large number so it sorts to the end.
         """
-        if not self.timeout_list:
-            return float("inf")
+
+        if self.timeout is None:
+            return math.inf
+
         for entry in self.timeout_list:
-            if entry.get("node_id") == node_id:
-                return max(0.0, float(entry.get("time", self.current_time) - self.current_time))
-        return float("inf")
+            if entry["node_id"] == node_id:
+                remaining = float(entry["time"] - self.current_time)
+                return remaining
+
+        return math.inf
 
     def _select_nodes_energy_aware(self, required_nodes: int, _candidates):
         """
-        Choose 'required_nodes' from self.idle to minimize:
+        Choose 'required_nodes' from candidates to minimize:
             score = (sum power) / min speed
         Implementation:
-          - Gather unique speed thresholds among idle nodes.
+          - Gather unique speed thresholds among candidates nodes.
           - For each threshold s: keep candidates with speed >= s.
           - If at least 'required_nodes' exist: pick the 'required_nodes' lowest-power nodes.
           - Compute score = sum(power) / s and keep the best set.
         Tie-breaks:
-          - Shorter sum of remaining idle-timeout (prefer nodes closer to switch-off)
+          - Shorter sum of remaining candidates-timeout (prefer nodes closer to switch-off)
           - Lower total power
           - Smaller node id list
         """
@@ -69,8 +74,8 @@ class FCFSNormal(BaseAlgorithm):
         # Normalize records
         normalized = []
         for node in _candidates:
-            speed = float(node.get("compute_speed", 1.0))
-            power = float(node.get("compute_power", 1.0))
+            speed = float(node.get("compute_speed"))
+            power = float(node.get("power"))
             rem_timeout = self._remaining_idle_timeout(node["id"])
             normalized.append({
                 "node": node,
@@ -81,7 +86,7 @@ class FCFSNormal(BaseAlgorithm):
 
         # Unique speeds (thresholds), high to low
         speed_levels = sorted({item["speed"]
-                              for item in normalized}, reverse=True)
+                               for item in normalized}, reverse=True)
 
         best_key = None
         best_pick = None
@@ -99,8 +104,8 @@ class FCFSNormal(BaseAlgorithm):
 
             total_power = sum(it["power"] for it in picked)
             # runtime cancels for comparisons; use threshold as the bottleneck speed
-            energy_score = total_power / \
-                (threshold_speed if threshold_speed > 0 else 1.0)
+            energy_score = total_power / threshold_speed
+
             total_remaining_timeout = sum(
                 it["remaining_timeout"] for it in picked)
             id_list = sorted(it["node"]["id"] for it in picked)

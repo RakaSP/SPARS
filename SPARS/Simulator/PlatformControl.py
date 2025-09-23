@@ -29,8 +29,7 @@ class PlatformControl:
                 - `release_time`: next time the node becomes free
         """
         self.machines = Machine(platform_info, start_time)
-        self.resources_agenda = [{'release_time': 0, 'id': i}
-                                 for i in range(len(self.machines.nodes))]
+
         self.overrun_policy = overrun_policy
 
     def get_state(self):
@@ -44,23 +43,6 @@ class PlatformControl:
             seen = set()
             duplicates = [x for x in node_ids if x in seen or seen.add(x)]
             raise RuntimeError(f"Duplicate node_ids found: {duplicates}")
-
-    def update_resources_agenda_global(self, current_time):
-        for resource_agenda in self.resources_agenda:
-            node = self.machines.nodes[resource_agenda['id']]
-            node_transitions = self.machines.machines_transition[resource_agenda['id']]
-            if node['state'] == 'sleeping':
-                for transition in node_transitions['transitions']:
-                    if transition['from'] == 'switching_on' and transition['to'] == 'active':
-                        resource_agenda['release_time'] = current_time + \
-                            transition['transition_time']
-            elif node['state'] == 'active' and node['job_id'] is None:
-                resource_agenda['release_time'] = current_time
-
-    def update_resource_agenda(self, node_ids, release_time):
-        for resource_agenda in self.resources_agenda:
-            if resource_agenda['id'] in node_ids:
-                resource_agenda['release_time'] = release_time
 
     def compute(self, node_ids, job, current_time):
         self.validate_duplication(node_ids)
@@ -92,7 +74,7 @@ class PlatformControl:
                      'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'reqtime': job['reqtime'], 'req_finish_time': requested_finish_time, 'runtime': job['runtime'], 'actual_finish_time': actual_finish_time}
 
             finish_time = min(requested_finish_time, actual_finish_time)
-            self.update_resource_agenda(node_ids, finish_time)
+
             return finish_time, event
         elif self.overrun_policy == 'continue':
             compute_power = min(node['compute_speed']
@@ -109,7 +91,7 @@ class PlatformControl:
                      'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'reqtime': job['reqtime'], 'req_finish_time': requested_finish_time, 'runtime': job['runtime'], 'actual_finish_time': actual_finish_time},
 
             finish_time = max(requested_finish_time, actual_finish_time)
-            self.update_resource_agenda(node_ids, finish_time)
+
             return actual_finish_time, event
 
     def change_dvfs_mode(self, node_ids, mode):
@@ -122,7 +104,6 @@ class PlatformControl:
         if current_time < event['actual_finish_time']:
             terminated = True
         self.machines.release(event['nodes'])
-        self.update_resource_agenda(event['nodes'], current_time)
 
         return terminated
 
@@ -146,42 +127,26 @@ class PlatformControl:
         # Grouping maps
         # time when switching_off -> sleeping completes (for the returned event)
         turnoff_map = {}
-        # time when nodes are active again (for update_resource_agenda)
-        release_map = {}
 
         for node_id in node_ids:
             # Find transition spec for this node
             mt = next((mt for mt in self.machines.machines_transition
                        if mt.get('node_id') == node_id), None)
 
-            t_off = 0            # switching_off -> sleeping
-            t_sleep_to_on = 0    # sleeping -> switching_on
-            t_on = 0             # switching_on -> active
-
             if mt:
-                for tr in mt.get('transitions', []):
+                for tr in mt.get('transitions'):
                     frm = tr.get('from')
                     to = tr.get('to')
-                    tt = tr.get('transition_time', 0)
+                    tt = tr.get('transition_time')
                     if frm == 'switching_off' and to == 'sleeping':
-                        t_off = tt
-                    elif frm == 'sleeping' and to == 'switching_on':
-                        t_sleep_to_on = tt
-                    elif frm == 'switching_on' and to == 'active':
-                        t_on = tt
+                        t_off = tt  # switching_off -> sleeping
+                        break
 
             # Absolute times
-            turn_off_done_at = current_time + (t_off or 0)
-            next_release_at = current_time + \
-                (t_off or 0) + (t_sleep_to_on or 0) + (t_on or 0)
+            turn_off_done_at = current_time + (t_off)
 
             # Group nodes by times
             turnoff_map.setdefault(turn_off_done_at, []).append(node_id)
-            release_map.setdefault(next_release_at, []).append(node_id)
-
-        # Update resource agenda using the NEXT RELEASE time (off + sleep + on)
-        for next_release_at, nodes in release_map.items():
-            self.update_resource_agenda(nodes, next_release_at)
 
         # Return the original 'turn_off' event at the time the nodes finish turning off
         result = []
@@ -201,37 +166,27 @@ class PlatformControl:
         # Grouping maps
         # time when switching_on -> active completes (for the returned event)
         turnon_map = {}
-        # time when nodes are active (for update_resource_agenda)
-        release_map = {}
 
         for node_id in node_ids:
             # Find transition spec for this node
             mt = next((mt for mt in self.machines.machines_transition
                        if mt.get('node_id') == node_id), None)
 
-            t_sleep_to_on = 0    # sleeping -> switching_on
-            t_on = 0             # switching_on -> active
-
             if mt:
-                for tr in mt.get('transitions', []):
+                for tr in mt.get('transitions'):
                     frm = tr.get('from')
                     to = tr.get('to')
                     tt = tr.get('transition_time', 0)
                     if frm == 'sleeping' and to == 'switching_on':
-                        t_sleep_to_on = tt
+                        t_sleep_to_on = tt  # sleeping -> switching_on
                     elif frm == 'switching_on' and to == 'active':
-                        t_on = tt
+                        t_on = tt  # switching_on -> active
 
             # Absolute time when node is ACTIVE again
-            turn_on_done_at = current_time + (t_sleep_to_on or 0) + (t_on or 0)
+            turn_on_done_at = current_time + (t_sleep_to_on) + (t_on)
 
             # Group nodes by activation time
             turnon_map.setdefault(turn_on_done_at, []).append(node_id)
-            release_map.setdefault(turn_on_done_at, []).append(node_id)
-
-        # Update resource agenda when nodes become ACTIVE
-        for ts, nodes in release_map.items():
-            self.update_resource_agenda(nodes, ts)
 
         # Return 'turn_on' events at the time nodes finish turning on
         result = []

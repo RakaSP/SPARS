@@ -3,8 +3,8 @@ from operator import itemgetter
 
 class BaseAlgorithm:
     """
-    Per-node resource agenda:
-      resource_agenda = [
+    Per-node Next Releases: Store queue of event to get the earliest node's next idle state
+      next_releases = [
         {
           'node_id': <int>,
           'queue': [
@@ -35,7 +35,7 @@ class BaseAlgorithm:
         self.jobs_manager = jobs_manager
 
         self.state = machines.nodes
-        self.transitions = machines.machines_transition
+        self.machines_transitions = machines.machines_transition
         self.waiting_queue = jobs_manager.waiting_queue
         self.scheduled_queue = jobs_manager.scheduled_queue
         self.events = []
@@ -54,16 +54,14 @@ class BaseAlgorithm:
         self.next_timeout_at = None
 
         # resource agenda (rebuilt in prep_schedule)
-        self.resource_agenda = [
+        self.next_releases = [
             {'node_id': n['id'], 'queue': [],
                 'release_time': self.current_time}
             for n in self.state
         ]
 
-        # for call_me_later on node state changes
-        self._old_state_sig = self._snapshot_state_sig()
-
     # ---------------- Events & time ----------------
+
     def push_event(self, timestamp, event):
         bucket = next(
             (x for x in self.events if x['timestamp'] == timestamp), None)
@@ -77,24 +75,17 @@ class BaseAlgorithm:
         self.current_time = float(current_time)
 
     # ---------------- Helpers ----------------
-    def _agenda_by_id(self):
-        return {e['node_id']: e for e in self.resource_agenda}
-
-    def _snapshot_state_sig(self):
-        """Compact signature to detect state changes."""
-        return {n['id']: (n.get('state'), n.get('job_id')) for n in self.state}
+    def _releases_by_id(self):
+        return {e['node_id']: e for e in self.next_releases}
 
     @staticmethod
     def _sum_queue_abs(q):
         """Return the absolute finish time of last phase or 0 if empty (caller sets to now)."""
-        return float(q[-1]['finish_time']) if q else 0.0
+        return float(q[-1]['finish_time'])
 
     def _remaining_time(self, total, started_at, now):
         """Remaining time in current phase; conservative if timestamps unknown."""
-        if total is None:
-            return 0.0
-        if started_at is None:
-            return max(0.0, float(total))
+
         return max(0.0, float(total) - max(0.0, now - float(started_at)))
 
     def _recompute_release_at(self, entry):
@@ -109,10 +100,15 @@ class BaseAlgorithm:
         entry['release_time'] = ft
 
     def _cursor_from_queue(self, entry):
-        """Where the next phase would start (end of last phase or now)."""
-        return float(entry['queue'][-1]['finish_time']) if entry['queue'] else self.current_time
+        """Where the next phase would start: end of last phase, else entry['release_time'] (can be 0.0)."""
+        q = entry['queue']
+        if q:
+            return float(q[-1]['finish_time'])
+        # queue empty -> use recorded release_time (0.0 is allowed by your policy)
+        return float(entry['release_time'])
 
-        # ---------------- Transitions lookup (from machines_transitions) ----------------
+    # ---------------- Transitions lookup (from machines_transitions) ----------------
+
     def _ensure_transition_index(self):
         """
         Build once: { node_id: { (from_state, to_state): transition_time, ... }, ... }
@@ -125,7 +121,7 @@ class BaseAlgorithm:
             return
 
         self._trans_index = {}
-        source = getattr(self, "machines_transitions", None) or []
+        source = getattr(self, "machines_transitions")
         for row in source:
             nid = row.get("node_id")
             tlist = row.get("transitions") or []
@@ -133,18 +129,18 @@ class BaseAlgorithm:
             for t in tlist:
                 frm = str(t.get("from"))
                 to = str(t.get("to"))
-                tt = float(t.get("transition_time", 0.0))
+                tt = float(t.get("transition_time"))
                 by_pair[(frm, to)] = tt
             if nid is not None:
                 self._trans_index[int(nid)] = by_pair
 
         self._trans_index_built = True
 
-    def _transition_time(self, node_id: int, from_state: str, to_state: str, default: float = 0.0) -> float:
+    def _transition_time(self, node_id: int, from_state: str, to_state: str) -> float:
         """Return transition_time for (from_state -> to_state) for node_id; default if not found."""
         self._ensure_transition_index()
-        by_pair = self._trans_index.get(int(node_id), {})
-        return float(by_pair.get((from_state, to_state), default))
+        by_pair = self._trans_index.get(int(node_id))
+        return float(by_pair.get((from_state, to_state)))
 
     # ---------------- Resource agenda builders ----------------
     def _prune_finished(self, entry):
@@ -161,83 +157,86 @@ class BaseAlgorithm:
         Otherwise, insert/replace with (now or start_at) + duration.
         """
         q = entry['queue']
-        now = self.current_time
+
         if q and q[0]['phase'] == phase_name:
             if start_at is not None:
                 q[0]['start_time'] = float(start_at)
                 q[0]['finish_time'] = float(start_at) + float(duration)
         else:
-            st = float(start_at) if start_at is not None else float(now)
+            st = float(start_at)
             ft = st + float(duration)
             q.insert(0, {'phase': phase_name,
                      'start_time': st, 'finish_time': ft})
 
-    def _rebuild_resource_agenda_global(self):
-        ag_by_id = self._agenda_by_id()
+    # Rebuild to “earliest idle”
+    def _rebuild_next_releases_global(self):
+        by_id = self._releases_by_id()
         now = self.current_time
 
         for node in self.state:
-            node_id = node['id']
-            entry = ag_by_id.get(node_id)
+            nid = node['id']
+            entry = by_id.get(nid)
             if entry is None:
-                entry = {'node_id': node_id, 'queue': [], 'release_time': now}
-                self.resource_agenda.append(entry)
+                entry = {'node_id': nid, 'queue': [], 'release_time': now}
+                self.next_releases.append(entry)
 
-            # prune finished
-            self._prune_finished(entry)
+            # Drop phases already finished
+            if entry['queue']:
+                entry['queue'] = [seg for seg in entry['queue']
+                                  if float(seg['finish_time']) > now]
 
-            state = node.get('state')
+            state = node['state']
             job_id = node.get('job_id')
-            started_at = node.get('phase_started_at')  # optional timestamp
 
-            # durations from machines_transitions
-            switching_off_to_sleeping = self._transition_time(
-                node_id, 'switching_off', 'sleeping', 0.0)
-            switching_on_to_active = self._transition_time(
-                node_id, 'switching_on',  'active',   0.0)
+            # Transition durations
+            t_off_sleep = self._transition_time(
+                nid, 'switching_off',  'sleeping')
+            t_sleep_on = self._transition_time(
+                nid, 'sleeping',       'switching_on')
+            t_on_active = self._transition_time(
+                nid, 'switching_on',   'active')
+
+            q = entry['queue']
+            head = q[0] if q else None
+            head_phase = head['phase'] if head else None
 
             if state == 'switching_off':
-                st = float(started_at) if started_at is not None else None
-                self._ensure_head(entry, 'switching_off', st,
-                                  switching_off_to_sleeping)
-
-            elif state == 'switching_on':
-                st = float(started_at) if started_at is not None else None
-                self._ensure_head(entry, 'switching_on', st,
-                                  switching_on_to_active)
+                # Ensure head switching_off; reuse its start_time if already present
+                if head_phase != 'switching_off':
+                    q.insert(0, {'phase': 'switching_off',
+                                 'start_time': now, 'finish_time': now + t_off_sleep})
+                    head = q[0]
+                cursor = float(head['finish_time'])
+                # Immediately proceed: sleeping -> switching_on (instant/short) -> active
+                start_on = cursor + float(t_sleep_on)
+                self._append_phase_abs(entry, 'switching_on',
+                                       start_on, t_on_active)
 
             elif state == 'sleeping':
-                # steady; remove stray switching head phases
-                if entry['queue'] and entry['queue'][0]['phase'] in ('switching_off', 'switching_on'):
-                    entry['queue'].pop(0)
+                # sleeping -> switching_on (instant/short) -> active
+                start_on = now + float(t_sleep_on)
+                self._append_phase_abs(entry, 'switching_on',
+                                       start_on, t_on_active)
+
+            elif state == 'switching_on':
+                # Ensure head switching_on; reuse its start_time if already present
+                if head_phase != 'switching_on':
+                    q.insert(0, {'phase': 'switching_on',
+                                 'start_time': now, 'finish_time': now + t_on_active})
+                else:
+                    # normalize finish in case duration changed
+                    head['finish_time'] = float(
+                        head['start_time']) + float(t_on_active)
 
             elif state == 'active':
                 if job_id is None:
-                    # drop stray switching/sleep_to_active heads
-                    while entry['queue'] and entry['queue'][0]['phase'] in ('switching_off', 'switching_on', 'sleep_to_active'):
-                        entry['queue'].pop(0)
-                else:
-                    # if compute phase missing, allocator/events reconcile later
-                    pass
+                    # active & idle: strip stray switching heads (we're already idle)
+                    while q and q[0]['phase'] in ('switching_off', 'switching_on'):
+                        q.pop(0)
+                # if computing, keep existing compute phases (allocator added them)
 
-            # recompute absolute release time
+            # release_time = end of last phase, or now if none
             self._recompute_release_at(entry)
-
-    def _update_resource_agenda_partial(self, node_ids, extra_phase):
-        """
-        Append a phase (absolute) for selected nodes and refresh release_time.
-        extra_phase: {'phase': str, 'duration': float}
-        """
-        ag_by_id = self._agenda_by_id()
-        for nid in node_ids:
-            entry = ag_by_id.get(nid)
-            if entry is None:
-                entry = {'node_id': nid, 'queue': [],
-                         'release_time': self.current_time}
-                self.resource_agenda.append(entry)
-            cursor = self._cursor_from_queue(entry)
-            self._append_phase_abs(
-                entry, extra_phase['phase'], cursor, float(extra_phase['duration']))
 
     # ---------------- Events builder ----------------
     def events_builder(self):
@@ -256,7 +255,7 @@ class BaseAlgorithm:
             can_start = True
             for nid in node_ids:
                 node = node_by_id.get(nid)
-                if (node is None) or (node.get('state') != 'active') or (node.get('job_id') is not None):
+                if (node.get('state') != 'active') or (node.get('job_id') is not None):
                     can_start = False
                     break
 
@@ -277,7 +276,7 @@ class BaseAlgorithm:
 
         # Power: auto-switch ON only nodes that are both reserved & sleeping
         sleeping_reserved = [nid for nid in reserved_node_ids
-                             if node_by_id.get(nid, {}).get('state') == 'sleeping']
+                             if node_by_id.get(nid).get('state') == 'sleeping']
         if sleeping_reserved:
             self.push_event(self.current_time, {
                 'type': 'switch_on',
@@ -287,91 +286,100 @@ class BaseAlgorithm:
     # ---------------- Allocation ----------------
     def allocate(self, job, allocated_nodes):
         """
-        Add nodes to reserved (scheduled_queue), append wake (if needed) + compute phases with absolute times.
-        This does NOT remove jobs from waiting_queue; the simulator will consume scheduled_queue.
+        Reserve nodes and append ONLY the compute phase into next_releases.
+        Wake/transition phases are already captured by next_releases' release_time.
         """
         if not allocated_nodes:
             return
 
+        # 1) Update partitions
         node_ids = [n['id'] for n in allocated_nodes]
-
-        # Update partitions: remove from non-reserved buckets, add to reserved
         ids = set(node_ids)
-
-        def _filter_out(lst):
-            return [n for n in lst if n['id'] not in ids]
+        def _filter_out(lst): return [n for n in lst if n['id'] not in ids]
         self.idle = _filter_out(self.idle)
         self.sleeping = _filter_out(self.sleeping)
         self.switching_on = _filter_out(self.switching_on)
         self.switching_off = _filter_out(self.switching_off)
         self.reserved.extend(allocated_nodes)
 
-        # Register with jobs_manager
+        # 2) Register with jobs_manager
         self.jobs_manager.add_job_to_scheduled_queue(job['job_id'], node_ids)
 
-        # walltime via slowest node
+        # 3) Compute walltime via slowest node
         compute_speed = min(float(n['compute_speed']) for n in allocated_nodes)
+        assert compute_speed > 0.0
         walltime = float(job['runtime']) / compute_speed
 
-        ag_by_id = self._agenda_by_id()
+        # 4) Append ONLY compute at each node's earliest-ready time (release_time)
+        by_id = self._releases_by_id()
         for n in allocated_nodes:
-            entry = ag_by_id.get(n['id'])
-            if entry is None:
-                entry = {'node_id': n['id'], 'queue': [],
-                         'release_time': self.current_time}
-                self.resource_agenda.append(entry)
-
-            cursor = self._cursor_from_queue(entry)
-
-            # Need wake if sleeping/switching_off now, or if tail says switching_off
-            tail_phase = entry['queue'][-1]['phase'] if entry['queue'] else None
-            need_wake = (n.get('state') in ('sleeping', 'switching_off')) or (
-                tail_phase in ('switching_off',))
-            if need_wake:
-                # use machines_transitions: sleeping -> active
-                sleep_to_active = self._transition_time(
-                    n['id'], 'sleeping', 'active', 0.0)
-                if sleep_to_active > 0:
-                    self._append_phase_abs(
-                        entry, 'sleep_to_active', cursor, sleep_to_active)
-                    cursor = entry['release_time']
-
-            # Append compute phase
+            entry = by_id.get(n['id'])
+            # next_releases should already exist from prep_schedule()
+            assert entry is not None, f"next_releases entry missing for node {n['id']}"
+            # earliest time node is ACTIVE & IDLE
+            cursor = float(entry['release_time'])
             self._append_phase_abs(
                 entry, f'compute(job={job["job_id"]})', cursor, walltime)
 
     # ---------------- Timeout handling ----------------
+
     def remove_from_timeout_list(self, node_ids):
         ids = set(node_ids)
         self.timeout_list[:] = [
             ti for ti in self.timeout_list if ti.get('node_id') not in ids]
 
-    def timeout_policy(self):
-        if not self.timeout:
+    def _rebuild_timeout_list(self):
+        """
+        Recompute timeout_list from CURRENT state/partitions.
+        Policy:
+        - If timeout is None: no timeouts -> clear list & marker.
+        - Else: every ACTIVE & IDLE, NON-RESERVED node must have a deadline.
+                Non-idle or reserved nodes must not have a deadline.
+        """
+        if self.timeout is None:
+            self.timeout_list = []
+            self.next_timeout_at = None
             return
 
         now = self.current_time
         expire_at = now + self.timeout
 
+        # Build fast lookups
+        reserved_ids = {n['id'] for n in self.reserved}
+        idle_ids = {
+            n['id'] for n in self.state
+            if (n.get('state') == 'active') and (n.get('job_id') is None)
+        }
+
+        # Keep only entries for currently idle & not-reserved nodes
+        keep_map = {}
+        for t in self.timeout_list:
+            nid = t['node_id']
+            # keep only valid entries; strict access to 'time'
+            if (nid in idle_ids) and (nid not in reserved_ids):
+                keep_map[nid] = float(t['time'])
+
+        # Ensure every eligible node has a deadline; assign new ones to now+timeout
+        for nid in (idle_ids - reserved_ids):
+            if nid not in keep_map:
+                keep_map[nid] = expire_at
+
+        # Write back as a list (unsorted is fine; timeout_policy will derive next_earliest)
+        self.timeout_list = [{'node_id': nid, 'time': t}
+                             for nid, t in keep_map.items()]
+
+    def timeout_policy(self):
+        if self.timeout is None:
+            return
+
+        now = self.current_time
+
+        # NEW: refresh (adds new idle nodes, removes reserved/non-idle)
+        self._rebuild_timeout_list()
+
         state_by_id = {n['id']: n for n in self.state}
         reserved_ids = {n['id'] for n in self.reserved}
-        timeout_ids = {t['node_id'] for t in self.timeout_list}
 
-        # Remove timeouts for nodes that are now reserved
-        if timeout_ids & reserved_ids:
-            self.timeout_list = [
-                t for t in self.timeout_list if t['node_id'] not in reserved_ids]
-            timeout_ids -= reserved_ids
-
-        # Add timeouts for idle active not-reserved nodes
-        for node in self.state:
-            idle = (node.get('state') == 'active' and node.get('job_id') is None)
-            nid = node['id']
-            if idle and nid not in reserved_ids and nid not in timeout_ids:
-                self.timeout_list.append({'node_id': nid, 'time': expire_at})
-                timeout_ids.add(nid)
-
-        # Walk timeouts
         keep, switch_off, next_earliest = [], [], None
         for t in self.timeout_list:
             nid = t['node_id']
@@ -380,9 +388,11 @@ class BaseAlgorithm:
                 continue
             if nid in reserved_ids:
                 continue
-            idle = (node.get('state') == 'active' and node.get('job_id') is None)
+            idle = (node.get('state') == 'active') and (
+                node.get('job_id') is None)
             if not idle:
                 continue
+
             if now < t['time']:
                 keep.append(t)
                 next_earliest = t['time'] if next_earliest is None else min(
@@ -395,11 +405,13 @@ class BaseAlgorithm:
         if switch_off:
             self.push_event(now, {'type': 'switch_off', 'nodes': switch_off})
 
-        if next_earliest is not None and getattr(self, 'next_timeout_at', None) != next_earliest:
+        if next_earliest is not None and self.next_timeout_at != next_earliest:
+
             self.push_event(next_earliest, {'type': 'call_me_later'})
             self.next_timeout_at = next_earliest
 
     # ---------------- Partition & prep ----------------
+
     def _build_partitions(self):
         """Build mutually-exclusive node partitions."""
         self.reserved, self.computing = [], []
@@ -435,71 +447,30 @@ class BaseAlgorithm:
     def prep_schedule(self):
         """
         Rebuild partitions and resource_agenda from current state.
-        Also schedule call_me_later at now+timeout if any node state changed.
         """
         self.events = []
 
         # Reconcile queues (no future phases added here)
-        self._rebuild_resource_agenda_global()
+        self._rebuild_next_releases_global()
 
         # Rebuild partitions (disjoint)
         self._build_partitions()
 
-        # Optional: call_me_later if state changed
-        new_sig = self._snapshot_state_sig()
-        state_changed = (
-            set(new_sig.keys()) != set(self._old_state_sig.keys())
-            or any(new_sig[nid] != self._old_state_sig.get(nid) for nid in new_sig)
-        )
-        if state_changed and self.timeout:
-            self.push_event(self.current_time + self.timeout,
-                            {'type': 'call_me_later'})
-        self._old_state_sig = new_sig
+        # Rebuild timeout_list
+        self._rebuild_timeout_list()
 
     # ---------------- Readiness helpers ----------------
     def _node_ready_at(self, node):
         """
         Predict the absolute time when 'node' can start computing if selected now.
-        Uses machines_transitions for durations.
+        This simply returns the 'release_time' from next_releases.
         """
-        now = self.current_time
+        # Fetch the release time directly from next_releases (which holds the calculated next event time)
         node_id = node['id']
-        state = node.get('state')
-        started_at = node.get('phase_started_at')
+        entry = self._releases_by_id().get(node_id)
 
-        # needed durations
-        t_switching_on_to_active = self._transition_time(
-            node_id, 'switching_on',  'active',   0.0)
-        t_switching_off_to_sleeping = self._transition_time(
-            node_id, 'switching_off', 'sleeping', 0.0)
-        t_sleeping_to_active = self._transition_time(
-            node_id, 'sleeping',      'active',   0.0)
+        if entry:
+            return entry['release_time']
 
-        ag_entry = self._agenda_by_id().get(node_id)
-        head = ag_entry['queue'][0] if ag_entry and ag_entry['queue'] else None
-
-        # Already active & idle: ready now
-        if state == 'active' and node.get('job_id') is None:
-            return now
-
-        if state == 'switching_on':
-            # finish switching_on -> active
-            if head and head['phase'] == 'switching_on':
-                return float(head['finish_time'])
-            if started_at is not None:
-                return float(started_at) + t_switching_on_to_active
-            return now + t_switching_on_to_active
-
-        if state == 'switching_off':
-            # finish switching_off to sleeping, then wake sleeping->active
-            if head and head['phase'] == 'switching_off':
-                return float(head['finish_time']) + t_sleeping_to_active
-            if started_at is not None:
-                return float(started_at) + t_switching_off_to_sleeping + t_sleeping_to_active
-            return now + t_switching_off_to_sleeping + t_sleeping_to_active
-
-        if state == 'sleeping':
-            return now + t_sleeping_to_active
-
-        # conservative default
-        return now
+        # If no entry found, return current time as fallback (or handle as error)
+        return self.current_time

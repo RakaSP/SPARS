@@ -20,7 +20,7 @@ class EASYNormal(FCFSNormal):
             p_job = self.waiting_queue[0]
 
             backfill_queue = self.waiting_queue[1:]
-            next_releases = sorted(self.resource_agenda,
+            next_releases = sorted(self.next_releases,
                                    key=lambda a: a['release_time'])
             last_host = next_releases[p_job['res'] - 1]
             p_start_t = last_host['release_time']
@@ -65,19 +65,19 @@ class EASYNormal(FCFSNormal):
 
         Returns: list[dict node] or None
         """
-        required_nodes = int(job.get('res', 0))
+        required_nodes = int(job.get('res'))
         if required_nodes <= 0:
             return []
         if not candidates or len(candidates) < required_nodes:
             return None
 
-        now = float(getattr(self, "current_time", 0.0))
-        required_time = float(job.get('reqtime', job.get('runtime', 0.0)))
+        now = float(getattr(self, "current_time"))
+        required_time = float(job.get('reqtime', job.get('runtime')))
 
         # Build node_id -> release_time from the resource agenda
         resource_agenda_by_id = self._agenda_by_id()
         release_times_by_node_id = {
-            int(node_id): float(entry.get('release_at', now))
+            int(node_id): float(entry.get('release_time'))
             for node_id, entry in resource_agenda_by_id.items()
         }
 
@@ -85,7 +85,7 @@ class EASYNormal(FCFSNormal):
         normalized = []  # each: dict with node, node_id, speed, power, release_time, remaining_idle_timeout
         for node in candidates:
             node_id = int(node['id'])
-            speed = float(node.get('compute_speed', 0.0) or 0.0)
+            speed = float(node.get('compute_speed'))
             if speed <= 0.0:
                 continue
             release_time = float(release_times_by_node_id.get(
@@ -93,7 +93,7 @@ class EASYNormal(FCFSNormal):
             if required_time > 0.0 and release_time >= float(max_finish_time):
                 # If it can't even start before the deadline for a positive required_time, skip
                 continue
-            power = float(node.get('compute_power', 0.0) or 0.0)
+            power = float(node.get('power'))
             remaining_idle_timeout = float(
                 self._remaining_idle_timeout_seconds(node_id))
             normalized.append({
