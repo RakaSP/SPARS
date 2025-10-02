@@ -19,48 +19,19 @@ DEFAULT_CFG_PATH = "simulator_config.yaml"
 
 def _load_config(path: str = DEFAULT_CFG_PATH) -> Dict[str, Any]:
     """
-    Load YAML or JSON config from a fixed path. If the file doesn't exist,
-    fall back to internal defaults (keeps the runner usable out of the box).
+    Load YAML or JSON config from a fixed path.
+    If the file doesn't exist, raise (no silent fallback).
     """
     import pathlib
     p = pathlib.Path(path)
-    if p.exists():
-        if p.suffix.lower() in {".yml", ".yaml"}:
-            import yaml  # requires PyYAML
-            with open(p, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
+    if not p.exists():
+        raise FileNotFoundError(f"Config file not found: {p.resolve()}")
+    if p.suffix.lower() in {".yml", ".yaml"}:
+        import yaml  # requires PyYAML
         with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    # Fallback defaults (edit these if you want different out-of-the-box behavior)
-    return {
-        "paths": {
-            "workload": "workloads/generated.json",
-            "platform": "platforms/generated.json",
-            "output":   "results/generated",
-        },
-        "run": {
-            "algorithm": "fcfs_normal",
-            "overrun_policy": "continue",
-            "timeout": None,
-            "start_time": 0,  # epoch int, or "now", or "YYYY-MM-DD HH:MM:SS"
-        },
-        "rl": {
-            "enabled": False,
-            "type": "discrete",   # "discrete" | "continuous"
-            "dt": 1800,           # required for discrete
-            "device": "auto",     # "auto" | "cpu" | "cuda"
-            "learning_rate": 3e-4,
-            "epochs": 10,
-            "num_nodes": 16,
-            "obs_dim": 11,
-            "act_dim": 1,
-        },
-        "logging": {
-            "level": "INFO",
-            "file": "results/simulation.log",
-        },
-    }
+            return yaml.safe_load(f)
+    with open(p, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def _choose_device(pref: str) -> str:
@@ -202,36 +173,34 @@ def main():
     # --- Logging ---
     logger = get_logger(
         "runner",
-        level=cfg["logging"].get("level", "INFO"),
-        log_file=cfg["logging"].get("file", "results/simulation.log"),
+        level=cfg["logging"]["level"],
+        log_file=cfg["logging"]["file"],
     )
 
-    # --- Config Unpack ---
-    workload_path = cfg["paths"]["workload"]
-    platform_path = cfg["paths"]["platform"]
+    # --- Config Unpack (only the pieces you still use) ---
     output_path = cfg["paths"]["output"]
 
-    algorithm = cfg["run"]["algorithm"]
-    overrun_policy = cfg["run"].get("overrun_policy", "continue")
-    timeout = cfg["run"].get("timeout", None)
-    start_time = _parse_start_time(cfg["run"].get("start_time", 0))
-
-    rl_enabled = bool(cfg["rl"].get("enabled", False))
-    rl_type = cfg["rl"].get("type", "discrete") if rl_enabled else None
-    rl_dt = cfg["rl"].get("dt", None) if rl_type == "discrete" else None
-    device = _choose_device(cfg["rl"].get("device", "auto"))
+    rl_enabled = bool(cfg["rl"]["enabled"])
+    rl_type = cfg["rl"]["type"] if rl_enabled else None
+    rl_dt = cfg["rl"]["dt"] if rl_type == "discrete" else None
+    device = _choose_device(cfg["rl"]["device"])
 
     # === RL parameters ===
-    learning_rate = float(cfg["rl"].get("learning_rate", 3e-4))
-    epochs = int(cfg["rl"].get("epochs", 10))
-    num_nodes = int(cfg["rl"].get("num_nodes", 16))
-    obs_dim = int(cfg["rl"].get("obs_dim", 11))
-    act_dim = int(cfg["rl"].get("act_dim", 1))
+    epochs = int(cfg["rl"]["epochs"])
+    num_nodes = int(cfg["rl"]["num_nodes"])
 
     if rl_enabled and rl_type == "discrete" and rl_dt is None:
         raise RuntimeError("Discrete RL requires rl.dt in the config file.")
 
     if rl_enabled:
+        # Select the agent per new config structure: rl.agents + rl.assign
+        # e.g., "thomas" or "spars"
+        assigned_name = cfg["rl"]["assign"]
+        # dict with both agents
+        agents_dict = cfg["rl"]["agents"]
+        # pick the requested one
+        agent_cfg = agents_dict[assigned_name]
+
         # Build simulator from config (no CLI/args)
         simulator = Simulator.from_config(
             cfg,
@@ -239,8 +208,10 @@ def main():
         )
         env = HPCGymEnv(simulator, device)
 
-        # === ONLY change below: agent is now built from config flexibly ===
-        model, model_opt = _build_agent(cfg["rl"], device)
+        # Build the agent using your existing builder by passing a tiny shim:
+        # we keep its expected shape: {'agent': <agent_cfg>, 'device': <rl.device>}
+        model, model_opt = _build_agent(
+            {"agent": agent_cfg, "device": cfg["rl"]["device"]}, device)
 
         for _ in range(epochs):
             # reset per epoch
@@ -297,7 +268,7 @@ def main():
             "agent_class": f"{model.__class__.__module__}:{model.__class__.__name__}",
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": model_opt.state_dict(),
-            "rl_config": cfg.get("rl", {}),
+            "rl_config": cfg.get("rl", {}),  # left as-is
             "epochs_trained": epochs,
         }
         ckpt_path = os.path.join(output_path, "agent_checkpoint.pt")

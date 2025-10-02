@@ -7,32 +7,43 @@ run:
   algorithm: "easy_auto"
   overrun_policy: "terminate"
   timeout: 300
-  # start_time can be:
-  # - integer epoch (e.g., 0), or
-  # - string "YYYY-MM-DD HH:MM:SS" (local), or "now"
+  # can be integer epoch, "now", or "YYYY-MM-DD HH:MM:SS"
   start_time: 0
 
 rl:
-  enabled: False
-  type: "discrete"
-  dt: 1800
-  device: "cpu" # resolved to 'cuda' if available else 'cpu'
-  learning_rate: 0.0003 # fallback if optimizer.params.lr is omitted
+  enabled: true
+  type: "discrete" # "discrete" | "continuous"
+  dt: 1800 # required when type == "discrete"
+  device: "cpu" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)
   epochs: 10
+  num_nodes: 128
 
-  agent:
-    # class: "RL_Agent.SPARS.agent:ActorCriticMLP"
-    class: "RL_Agent.Thomas.ActorCritic:ActorCritic"
-    params:
-      # obs_dim: 11
-      # act_dim: 1
-      obs_dim: 11 # Thomas Parameter
-      embed_dim: 16 # Thomas Parameter
-      device: "cpu"
-    optimizer:
-      class: "torch.optim:Adam"
+  # Keep BOTH agents; pick which one runs via `assign` below
+  agents:
+    thomas:
+      class: "RL_Agent.Thomas.ActorCritic:ActorCritic"
       params:
-        lr: 0.0003 # optional; else uses rl.learning_rate
+        obs_dim: 11
+        embed_dim: 128
+        device: "cpu" # optional; "auto" will resolve; omit to inherit rl.device
+      optimizer:
+        class: "torch.optim:Adam"
+        params:
+          lr: 0.0003 # REQUIRED (no silent default)
+
+    spars:
+      class: "RL_Agent.SPARS.agent:ActorCriticMLP"
+      params:
+        obs_dim: 11
+        act_dim: 1
+        device: "cpu"
+      optimizer:
+        class: "torch.optim:Adam"
+        params:
+          lr: 0.0003 # REQUIRED (no silent default)
+
+  # Single-agent assignment — set to "thomas" or "spars"
+  assign: "thomas"
 
 logging:
   level: "INFO"

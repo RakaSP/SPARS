@@ -79,8 +79,8 @@ class HPCGymEnv(gym.Env):
 
         while not need_rl and self.simulator.is_running:
             events = self.simulator.proceed()
-            scheduler_message = self.simulator.scheduler.schedule(self.simulator.current_time, self.simulator.PlatformControl.get_state(
-            ), self.simulator.jobs_manager.waiting_queue, self.simulator.jobs_manager.scheduled_queue, self.simulator.PlatformControl.resources_agenda)
+            scheduler_message = self.simulator.scheduler.schedule(
+                self.simulator.current_time)
 
             for _data in scheduler_message:
                 timestamp = _data['timestamp']

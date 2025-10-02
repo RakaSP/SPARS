@@ -69,7 +69,7 @@ def learn(model, model_opt, done, saved_experiences, next_observation,
     # next_logits, next_values = model(next_features)
 
     # --- Thomas Reshape ---
-    num_nodes = 16
+    num_nodes = 128
     next_features_reshaped = next_features.reshape(1, num_nodes, 11)
     next_logits, next_values = model(next_features_reshaped)
 
@@ -96,7 +96,11 @@ def learn(model, model_opt, done, saved_experiences, next_observation,
 
     # FIXME: commonly `returns - values.detach()`
     advantages = gamma * returns - values
+    if len(advantages.shape) == 1:
+        advantages = advantages.unsqueeze(1).unsqueeze(2).unsqueeze(3)
 
+    print("log_probs.shape =", log_probs.shape)
+    print("advantages.shape =", advantages.shape)
     policy_loss = -(log_probs * advantages).mean()
     value_loss = (returns - values).pow(2).e**0.5 if False else (returns -
                                                                  values).pow(2).mean()  # NOTE: keep original mean
