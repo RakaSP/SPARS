@@ -4,6 +4,7 @@ from SPARS.Simulator.Algo.fcfs_auto_switch_on import FCFSAuto
 from SPARS.Simulator.Algo.fcfs_normal import FCFSNormal
 from SPARS.Simulator.Algo.fcfs_batsim import FCFSBatsim
 from SPARS.Simulator.Algo.easy_batsim import EASYBatsim
+from SPARS.Simulator.Algo.fcfs_smart import FCFSSmart
 
 ALGO_MAP = {
     'fcfs_auto': FCFSAuto,
@@ -12,6 +13,7 @@ ALGO_MAP = {
     'easy_auto': EASYAuto,
     'fcfs_batsim': FCFSBatsim,
     'easy_batsim': EASYBatsim,
+    'fcfs_smart': FCFSSmart,
 }
 
 

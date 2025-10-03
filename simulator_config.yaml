@@ -1,17 +1,17 @@
 paths:
-  workload: "workloads/nasa-20-back.json"
-  platform: "platforms/platform-nasa-128.json"
-  output: "results/nasa_20_back_timeout_300_easy_batsim"
+  workload: "workloads/generated_200_16.json"
+  platform: "platforms/generated_16.json"
+  output: "results/fcfs_smart"
 
 run:
-  algorithm: "easy_auto"
+  algorithm: "fcfs_smart"
   overrun_policy: "terminate"
-  timeout: 300
+  timeout: 30
   # can be integer epoch, "now", or "YYYY-MM-DD HH:MM:SS"
   start_time: 0
 
 rl:
-  enabled: true
+  enabled: false
   type: "discrete" # "discrete" | "continuous"
   dt: 1800 # required when type == "discrete"
   device: "cpu" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)

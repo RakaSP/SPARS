@@ -248,7 +248,7 @@ class Simulator:
                     event['start_time'] = self.current_time
                     record_job_submission.append(event)
                     finish_time, ev = result
-                    self.jobs_manager.remove_job_from_scheduled_queue(
+                    self.jobs_manager.remove_job_from_waiting_queue(
                         event['job_id'], type='execution_start')
                     self.push_event(finish_time, ev)
                 else:

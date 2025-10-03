@@ -18,7 +18,6 @@ def get_feasible_mask(states):
     is_sleeping = np.asarray([host['state'] == 'sleeping' for host in states])
     is_allocated = np.asarray(
         [host['state'] == 'active' and host['job_id'] is None for host in states])
-    # FIXME: is_allocated duplicates is_idle; likely should be "host['job_id'] is not None".
 
     # can it be switched off
     is_really_idle = np.logical_and(is_idle, np.logical_not(is_allocated))
