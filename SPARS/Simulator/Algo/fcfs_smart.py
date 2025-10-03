@@ -32,83 +32,86 @@ class FCFSSmart(BaseSmart):
         return self.events
 
     def FCFSSmart(self):
-        # This will now store tuples of (nodes, predicted_start_time)
+        # This will now store tuples of (job, nodes, predicted_start_time)
+        # We need to track which job is associated with which nodes
 
         # snapshot to avoid iterator issues
         if self.current_time == 709:
             print('here')
+
+        # First pass: try to schedule all jobs and collect their start times
+        job_schedules = []  # Store (job, selected_nodes, start_time)
+
         for i, job in enumerate(self.waiting_queue[:]):
             required = int(job["res"])
 
+            # Get all currently scheduled nodes from job_schedules
+            currently_scheduled_nodes = []
+            for _, scheduled_nodes, _ in job_schedules:
+                currently_scheduled_nodes.extend(scheduled_nodes)
+
             # 1) Prefer ACTIVE & IDLE
             candidates = list(self.idle)
-            # Get all currently selected nodes from self.selected_list
-            currently_selected_nodes = []
-            for nodes, _ in self.selected_list:
-                currently_selected_nodes.extend(nodes)
-
             candidates = [
-                candidate for candidate in candidates if candidate not in currently_selected_nodes]
+                candidate for candidate in candidates if candidate not in currently_scheduled_nodes]
 
             if len(candidates) >= required:
                 selected = candidates[:required]
                 # For immediate execution, start time is current time
-                self.selected_list.append((selected, self.current_time))
-                super().allocate(job, selected)  # Immediate job execution
-                continue  # Move to next job
+                job_schedules.append((job, selected, self.current_time))
+                continue
 
             # 2) If not enough idle nodes, include ALL available nodes:
-            # idle, sleeping, computing, AND switching_on
             candidates = (list(self.idle) + list(self.sleeping) +
                           list(self.computing) + list(self.switching_on))
             candidates = [
-                candidate for candidate in candidates if candidate not in currently_selected_nodes]
+                candidate for candidate in candidates if candidate not in currently_scheduled_nodes]
 
             if len(candidates) >= required:
                 result = self._select_nodes_energy_aware(required, candidates)
                 if result is not None:
                     selected, start_time = result
-                    self.selected_list.append((selected, start_time))
-                    selected_ids = [n['id'] for n in selected]
-
-                    # Check if next job would start earlier
-                    if i + 1 < len(self.waiting_queue):
-                        next_job = self.waiting_queue[i + 1]
-                        next_required = int(next_job["res"])
-                        next_candidates = (list(self.idle) + list(self.sleeping) +
-                                           list(self.computing) + list(self.switching_on))
-                        # Get all currently selected nodes including the current selection
-                        all_selected_nodes = []
-                        for nodes, _ in self.selected_list:
-                            all_selected_nodes.extend(nodes)
-                        next_candidates = [
-                            c for c in next_candidates if c not in all_selected_nodes]
-
-                        if len(next_candidates) >= next_required:
-                            next_result = self._select_nodes_energy_aware(
-                                next_required, next_candidates)
-                            if next_result is not None:
-                                next_selected, next_start_time = next_result
-                                if next_start_time < start_time:
-                                    # Next job would start earlier, so break the loop
-                                    # Remove the current job from self.selected_list since we're not scheduling it
-                                    self.selected_list.pop()
-                                    break
-
-                    # Find sleeping nodes that need to be woken up
-                    # Note: switching_on nodes are already in process, so we don't need to wake them up again
-                    sleeping_ids = {n['id'] for n in self.sleeping}
-                    switch_on_nodes = []
-                    for nid in selected_ids:
-                        if nid in sleeping_ids:
-                            switch_on_nodes.append(nid)
-
-                    if switch_on_nodes:
-                        # Use the calculated start_time for switch_on events
-                        self._schedule_switch_on_events(
-                            job, selected, switch_on_nodes, start_time)
+                    job_schedules.append((job, selected, start_time))
+                else:
+                    # Can't schedule this job, so we break (FCFS)
+                    break
             else:
+                # Not enough nodes for this job
                 break
+
+        # Second pass: adjust start times to maintain FCFS order and prevent node switching
+        adjusted_schedules = []
+        max_start_time_so_far = 0
+
+        for i, (job, selected, start_time) in enumerate(job_schedules):
+            # Ensure jobs don't start earlier than previous jobs in FCFS order
+            adjusted_start_time = max(start_time, max_start_time_so_far)
+            adjusted_schedules.append((job, selected, adjusted_start_time))
+            max_start_time_so_far = adjusted_start_time
+
+        # Third pass: execute the schedules
+        for job, selected, start_time in adjusted_schedules:
+            # Add to selected_list for timeout policy
+            self.selected_list.append((selected, start_time))
+
+            # Check if this is an immediate execution
+            if start_time <= self.current_time:
+                super().allocate(job, selected)
+            else:
+                # Schedule for future execution
+                selected_ids = [n['id'] for n in selected]
+
+                # Find sleeping nodes that need to be woken up
+                sleeping_ids = {n['id'] for n in self.sleeping}
+                switch_on_nodes = []
+                for nid in selected_ids:
+                    if nid in sleeping_ids:
+                        switch_on_nodes.append(nid)
+
+                if switch_on_nodes:
+                    # Use the calculated start_time for switch_on events
+                    self._schedule_switch_on_events(
+                        job, selected, switch_on_nodes, start_time)
 
     def _schedule_switch_on_events(self, job, selected_nodes, switch_on_nodes, job_start_time):
         """
