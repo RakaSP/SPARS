@@ -51,6 +51,7 @@ class BaseSmart:
         self.sleeping = []
         self.switching_on = []
         self.switching_off = []
+        self.selected_list = []
 
         self.timeout_list = []
         self.to_be_switched_off_ids = []
@@ -398,6 +399,9 @@ class BaseSmart:
 
         now = self.current_time
 
+        if self.current_time == 709:
+            print('here')
+
         # NEW: refresh (adds new idle nodes, removes non-idle)
         self._rebuild_timeout_list()
 
@@ -411,15 +415,47 @@ class BaseSmart:
             if node is None:
                 continue
 
-            if not nid in idle_ids:
+            if nid not in idle_ids:
                 continue
 
-            if now < t['time'] and nid not in self.to_be_switched_off_ids:
+            if now >= t['time']:
+                # Timeout reached - check if node is in selected_list
+                node_in_selected = False
+                should_keep = False
+
+                for selected, start_time in self.selected_list:
+                    selected_ids = [n['id'] for n in selected]
+                    if nid in selected_ids:
+                        node_in_selected = True
+                        # Calculate total transition time: switch_off + switch_on
+                        switch_off_duration = self._transition_time(
+                            nid, 'switching_off', 'sleeping')
+                        switch_on_duration = self._transition_time(
+                            nid, 'switching_on', 'active')
+                        transition_time = switch_off_duration + switch_on_duration
+
+                        # Check if we can switch off and back on before the job starts
+                        if now + transition_time <= start_time:
+                            # We can switch off and still have time to switch back on before the job starts
+                            switch_off.append(nid)
+                        else:
+                            # Not enough time - keep the node active
+                            should_keep = True
+                        break
+
+                if not node_in_selected:
+                    # Node not in selected_list, safe to switch off
+                    switch_off.append(nid)
+                elif should_keep:
+                    # Node is in selected_list and we need to keep it
+                    keep.append(t)
+                    next_earliest = t['time'] if next_earliest is None else min(
+                        next_earliest, t['time'])
+            else:
+                # Timeout not reached yet, keep tracking
                 keep.append(t)
                 next_earliest = t['time'] if next_earliest is None else min(
                     next_earliest, t['time'])
-            else:
-                switch_off.append(nid)
 
         self.timeout_list = keep
 
@@ -427,7 +463,6 @@ class BaseSmart:
             self.push_event(now, {'type': 'switch_off', 'nodes': switch_off})
 
         if next_earliest is not None and self.next_timeout_at != next_earliest:
-
             self.push_event(next_earliest, {'type': 'call_me_later'})
             self.next_timeout_at = next_earliest
 
@@ -438,6 +473,7 @@ class BaseSmart:
         self.computing = []
         self.idle, self.sleeping = [], []
         self.switching_on, self.switching_off = [], []
+        self.selected_list = []
 
         for node in self.state:
             state = node.get('state')

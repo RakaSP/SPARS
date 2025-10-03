@@ -32,19 +32,28 @@ class FCFSSmart(BaseSmart):
         return self.events
 
     def FCFSSmart(self):
-        selected_list = []
+        # This will now store tuples of (nodes, predicted_start_time)
+
         # snapshot to avoid iterator issues
+        if self.current_time == 709:
+            print('here')
         for i, job in enumerate(self.waiting_queue[:]):
             required = int(job["res"])
 
             # 1) Prefer ACTIVE & IDLE
             candidates = list(self.idle)
+            # Get all currently selected nodes from self.selected_list
+            currently_selected_nodes = []
+            for nodes, _ in self.selected_list:
+                currently_selected_nodes.extend(nodes)
+
             candidates = [
-                candidate for candidate in candidates if candidate not in selected_list]
+                candidate for candidate in candidates if candidate not in currently_selected_nodes]
 
             if len(candidates) >= required:
                 selected = candidates[:required]
-                selected_list.extend(selected)
+                # For immediate execution, start time is current time
+                self.selected_list.append((selected, self.current_time))
                 super().allocate(job, selected)  # Immediate job execution
                 continue  # Move to next job
 
@@ -53,13 +62,13 @@ class FCFSSmart(BaseSmart):
             candidates = (list(self.idle) + list(self.sleeping) +
                           list(self.computing) + list(self.switching_on))
             candidates = [
-                candidate for candidate in candidates if candidate not in selected_list]
+                candidate for candidate in candidates if candidate not in currently_selected_nodes]
 
             if len(candidates) >= required:
                 result = self._select_nodes_energy_aware(required, candidates)
                 if result is not None:
                     selected, start_time = result
-                    selected_list.extend(selected)
+                    self.selected_list.append((selected, start_time))
                     selected_ids = [n['id'] for n in selected]
 
                     # Check if next job would start earlier
@@ -68,8 +77,12 @@ class FCFSSmart(BaseSmart):
                         next_required = int(next_job["res"])
                         next_candidates = (list(self.idle) + list(self.sleeping) +
                                            list(self.computing) + list(self.switching_on))
+                        # Get all currently selected nodes including the current selection
+                        all_selected_nodes = []
+                        for nodes, _ in self.selected_list:
+                            all_selected_nodes.extend(nodes)
                         next_candidates = [
-                            c for c in next_candidates if c not in selected_list]
+                            c for c in next_candidates if c not in all_selected_nodes]
 
                         if len(next_candidates) >= next_required:
                             next_result = self._select_nodes_energy_aware(
@@ -78,6 +91,8 @@ class FCFSSmart(BaseSmart):
                                 next_selected, next_start_time = next_result
                                 if next_start_time < start_time:
                                     # Next job would start earlier, so break the loop
+                                    # Remove the current job from self.selected_list since we're not scheduling it
+                                    self.selected_list.pop()
                                     break
 
                     # Find sleeping nodes that need to be woken up
@@ -159,9 +174,6 @@ class FCFSSmart(BaseSmart):
             return None
 
         releases_by_id = super()._releases_by_id()
-        best_combo = None
-        best_start_time = None
-        minimum_energy_waste = inf
 
         # Precompute machine lookup
         machine_by_id = {m['id']: m for m in self.machines.machines}
@@ -227,6 +239,10 @@ class FCFSSmart(BaseSmart):
 
         items = list(node_power_data.items())  # (nid, data)
 
+        # First layer: find the earliest start time with valid combinations
+        best_start_time = None
+        best_combos_at_earliest_time = []  # Store all combos at the earliest start time
+
         for t in releases_sorted:
             eligible = []  # list of (nid, cost_at_t)
             anchors = []   # subset of eligible with release == t
@@ -247,13 +263,14 @@ class FCFSSmart(BaseSmart):
             # Pre-sort eligible by (cost, nid) for deterministic tie-breaking
             ranked = sorted((cost, nid) for (nid, cost) in eligible)
 
+            # Find all valid combinations at this start time t
+            combos_at_t = []
+
             for anchor_nid, anchor_cost in anchors:
                 if required_nodes == 1:
+                    combo = (node_power_data[anchor_nid]['node'],)
                     total_cost = anchor_cost
-                    if total_cost < minimum_energy_waste:
-                        minimum_energy_waste = total_cost
-                        best_combo = (node_power_data[anchor_nid]['node'],)
-                        best_start_time = t
+                    combos_at_t.append((combo, total_cost))
                     continue
 
                 # Take (k-1) smallest excluding the anchor
@@ -271,14 +288,30 @@ class FCFSSmart(BaseSmart):
                     continue
 
                 total_cost = anchor_cost + sum_rest
-                if total_cost < minimum_energy_waste:
-                    minimum_energy_waste = total_cost
-                    chosen_ids = [anchor_nid] + picked_ids[:required_nodes - 1]
-                    # Deterministic ordering (by id); no order_idx used anywhere
-                    chosen_ids.sort()
-                    best_combo = tuple(
-                        node_power_data[nid]['node'] for nid in chosen_ids)
-                    best_start_time = t
+                chosen_ids = [anchor_nid] + picked_ids[:required_nodes - 1]
+                # Deterministic ordering (by id); no order_idx used anywhere
+                chosen_ids.sort()
+                combo = tuple(node_power_data[nid]['node']
+                              for nid in chosen_ids)
+                combos_at_t.append((combo, total_cost))
+
+            if combos_at_t:
+                # This is the earliest start time we found with valid combinations
+                best_start_time = t
+                best_combos_at_earliest_time = combos_at_t
+                break  # We found the earliest start time, no need to check later times
+
+        if not best_combos_at_earliest_time:
+            return None
+
+        # Second layer: among combos at the earliest start time, pick the one with minimum energy waste
+        best_combo = None
+        minimum_energy_waste = inf
+
+        for combo, energy_waste in best_combos_at_earliest_time:
+            if energy_waste < minimum_energy_waste:
+                minimum_energy_waste = energy_waste
+                best_combo = combo
 
         if best_combo is not None:
             return (best_combo, best_start_time)
