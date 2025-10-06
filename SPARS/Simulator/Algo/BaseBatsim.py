@@ -58,7 +58,8 @@ class BaseBatsim:
 
         node_ids = [n['id'] for n in allocated_nodes]
         self.add_job_to_scheduled_queue(job, node_ids)
-
+        self.waiting_queue = [
+            _job for _job in self.waiting_queue if job['job_id'] != _job['job_id']]
         # Pre-start: set release_time = walltime (slowest node)
         compute_speed = min(n['compute_speed'] for n in allocated_nodes)
         walltime = job['runtime'] / compute_speed
@@ -147,6 +148,8 @@ class BaseBatsim:
                     break
 
             if executable:
+                if job['job_id'] == 34273:
+                    print('here')
                 # Stamp start/finish & mark started
                 comp_speeds = [node_by_id[nid]['compute_speed']
                                for nid in allocated_node_ids]
@@ -177,6 +180,7 @@ class BaseBatsim:
                     'type': 'execution_start',
                     'nodes': allocated_node_ids,
                 })
+
                 jobs_to_start.append(job)
 
         self.scheduled_queue = list(

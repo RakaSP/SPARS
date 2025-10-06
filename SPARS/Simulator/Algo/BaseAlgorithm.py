@@ -320,6 +320,9 @@ class BaseAlgorithm:
         # 2) Register with jobs_manager
         self.add_job_to_scheduled_queue(job, node_ids)
 
+        self.waiting_queue = [
+            _job for _job in self.waiting_queue if job['job_id'] != _job['job_id']]
+
         # 3) Compute walltime via slowest node
         compute_speed = min(float(n['compute_speed']) for n in allocated_nodes)
         assert compute_speed > 0.0
