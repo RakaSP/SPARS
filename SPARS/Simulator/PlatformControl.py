@@ -76,6 +76,7 @@ class PlatformControl:
             finish_time = min(requested_finish_time, actual_finish_time)
 
             return finish_time, event
+
         elif self.overrun_policy == 'continue':
             compute_power = min(node['compute_speed']
                                 for node in self.machines.nodes if node['id'] in node_ids)
@@ -88,7 +89,7 @@ class PlatformControl:
             requested_finish_time = current_time + \
                 (requested_compute_demand / compute_power)
             event = {'job_id': job['job_id'], 'type': 'execution_finished', 'res': job['res'], 'nodes': node_ids,
-                     'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'reqtime': job['reqtime'], 'req_finish_time': requested_finish_time, 'runtime': job['runtime'], 'actual_finish_time': actual_finish_time},
+                     'start_time': current_time, 'subtime': job['subtime'], 'start_time': current_time, 'reqtime': job['reqtime'], 'req_finish_time': requested_finish_time, 'runtime': job['runtime'], 'actual_finish_time': actual_finish_time}
 
             finish_time = max(requested_finish_time, actual_finish_time)
 

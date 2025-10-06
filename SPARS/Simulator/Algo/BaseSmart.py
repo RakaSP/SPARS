@@ -1,5 +1,6 @@
 from operator import itemgetter
 import re
+import math
 _COMPUTE_RE = re.compile(r"^compute\(job=\d+\)$")
 
 
@@ -92,9 +93,20 @@ class BaseSmart:
 
         return max(0.0, float(total) - max(0.0, now - float(started_at)))
 
-    def _recompute_release_at(self, entry):
-        entry['release_time'] = self._sum_queue_abs(
-            entry['queue']) if entry['queue'] else self.current_time
+    def _recalculate_release_at(self, entry):
+        """Calculate release time, handling unknown (inf) finish times."""
+        if not entry['queue']:
+            entry['release_time'] = self.current_time
+            return
+
+        last_phase = entry['queue'][-1]
+        finish_time = float(last_phase['finish_time'])
+
+        # If any phase has unknown finish time (inf), the entire release time is unknown
+        if math.isinf(finish_time):
+            entry['release_time'] = float('inf')
+        else:
+            entry['release_time'] = finish_time
 
     def _append_phase_abs(self, entry, phase, start_time, duration):
         st = float(start_time)
@@ -178,9 +190,6 @@ class BaseSmart:
         by_id = self._releases_by_id()
         now = self.current_time
 
-        if self.current_time == 1917:
-            print('here')
-
         for node in self.state:
             nid = node['id']
             entry = by_id.get(nid)
@@ -188,10 +197,34 @@ class BaseSmart:
                 entry = {'node_id': nid, 'queue': [], 'release_time': now}
                 self.next_releases.append(entry)
 
-            # Drop phases already finished
-            if entry['queue']:
-                entry['queue'] = [seg for seg in entry['queue']
-                                  if float(seg['finish_time']) > now]
+            # Drop phases already finished, but handle compute phases that exceeded finish_time
+            new_queue = []
+            for seg in entry['queue']:
+                seg_finish_time = float(seg['finish_time'])
+
+                # Check if this is a compute phase that exceeded finish_time but job is still running
+                if _COMPUTE_RE.fullmatch(str(seg['phase'])):
+                    # Extract job ID from compute phase string - SIMPLE
+                    phase_str = str(seg['phase'])
+                    # 'compute(job=123)' -> extract '123'
+                    # Remove 'compute(job=' and ')'
+                    job_id_str = phase_str[12:-1]
+                    phase_job_id = int(job_id_str)
+
+                    # If current time is past finish_time AND node is still active with same job
+                    if (now >= seg_finish_time and
+                        node['state'] == 'active' and
+                            node.get('job_id') == phase_job_id):
+                        # Job is still running beyond its requested time - mark as unknown
+                        seg['finish_time'] = float('inf')
+                        new_queue.append(seg)
+                        continue
+
+                # For non-compute phases or finished compute phases, keep if not finished
+                if seg_finish_time > now:
+                    new_queue.append(seg)
+
+            entry['queue'] = new_queue
 
             state = node['state']
             job_id = node.get('job_id')
@@ -241,10 +274,9 @@ class BaseSmart:
 
             elif state == 'sleeping':
                 # For sleeping nodes, calculate when they COULD be available if we started switching_on now
-                if not any(seg['phase'] == 'switching_on' for seg in q):
-                    start_on = now + float(t_sleep_on)
-                    self._append_phase_abs(
-                        entry, 'switching_on', start_on, t_on_active)
+                start_on = now + float(t_sleep_on)
+                self._append_phase_abs(
+                    entry, 'switching_on', start_on, t_on_active)
 
             elif state == 'switching_on':
                 # For switching_on nodes, calculate remaining switching_on time
@@ -263,7 +295,7 @@ class BaseSmart:
                 # if computing, the allocator should have added compute phases
 
             # release_time = end of last phase, or now if none
-            self._recompute_release_at(entry)
+            self._recalculate_release_at(entry)
 
     # ---------------- Allocation and Call me Laters----------------
     def build_callbacks(self):
@@ -283,6 +315,8 @@ class BaseSmart:
                 node['id'], 'switching_on', 'active')
 
             for ef in execution_finish_lists:
+                if math.isinf(ef):
+                    continue
                 call_me_later_time = ef-switch_on_durations
                 if call_me_later_time < self.current_time:
                     continue

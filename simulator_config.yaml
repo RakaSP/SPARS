@@ -1,11 +1,11 @@
 paths:
   workload: "workloads/generated_200_16.json"
   platform: "platforms/generated_16.json"
-  output: "results/fcfs_smart"
+  output: "results/easy_smart_c1"
 
 run:
-  algorithm: "fcfs_smart"
-  overrun_policy: "terminate"
+  algorithm: "easy_smart"
+  overrun_policy: "continue"
   timeout: 30
   # can be integer epoch, "now", or "YYYY-MM-DD HH:MM:SS"
   start_time: 0
