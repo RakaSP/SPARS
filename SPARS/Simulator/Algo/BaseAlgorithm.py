@@ -170,6 +170,7 @@ class BaseAlgorithm:
 
     # Rebuild to “earliest idle”
     def _rebuild_next_releases_global(self):
+
         by_id = self._releases_by_id()
         now = self.current_time
 

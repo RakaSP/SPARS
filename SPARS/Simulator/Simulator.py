@@ -107,6 +107,8 @@ class Simulator:
             self.push_event(timestamp, job)
 
     def push_event(self, timestamp, event):
+        if timestamp < self.current_time:
+            raise ValueError("Cannot schedule events for past timestamps")
         evs = self.events
 
         # Fast path: append or merge at end if in order

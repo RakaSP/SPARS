@@ -25,10 +25,10 @@ class BaseSmart:
 
     Partitions we expose each scheduling tick (mutually exclusive):
       - self.computing    : state=='active' and job_id is not None
-      - self.idle         : state=='active' and job_id is None  
-      - self.sleeping     : state=='sleeping'                   
-      - self.switching_on : state=='switching_on'               
-      - self.switching_off: state=='switching_off'              
+      - self.idle         : state=='active' and job_id is None
+      - self.sleeping     : state=='sleeping'
+      - self.switching_on : state=='switching_on'
+      - self.switching_off: state=='switching_off'
     """
 
     # ---------------- Init ----------------
@@ -117,7 +117,8 @@ class BaseSmart:
         """
         Build once: { node_id: { (from_state, to_state): transition_time, ... }, ... }
         Expected external attribute: self.machines_transitions = [
-            {"node_id": 1, "transitions": [{"from": "sleeping", "to": "active", "transition_time": 12.3}, ...]},
+            {"node_id": 1, "transitions": [
+                {"from": "sleeping", "to": "active", "transition_time": 12.3}, ...]},
             ...
         ]
         """
@@ -177,6 +178,9 @@ class BaseSmart:
         by_id = self._releases_by_id()
         now = self.current_time
 
+        if self.current_time == 1917:
+            print('here')
+
         for node in self.state:
             nid = node['id']
             entry = by_id.get(nid)
@@ -192,52 +196,71 @@ class BaseSmart:
             state = node['state']
             job_id = node.get('job_id')
 
+            # Check if the current queue is valid for the node's state
+            current_queue_valid = False
+            if entry['queue']:
+                first_phase = entry['queue'][0]
+                # Queue is valid if current time is within the phase AND node state matches phase
+                if (float(first_phase['start_time']) <= now < float(first_phase['finish_time'])):
+                    if ((first_phase['phase'] == 'switching_off' and state == 'switching_off') or
+                        (first_phase['phase'] == 'switching_on' and state == 'switching_on') or
+                            (_COMPUTE_RE.fullmatch(str(first_phase['phase'])) and state == 'active' and job_id is not None)):
+                        current_queue_valid = True
+
+            # If queue is not valid for current state, clear and rebuild
+            if not current_queue_valid:
+                entry['queue'] = []  # Clear the queue
+
+            # Now rebuild based on current state
+            q = entry['queue']
+
             # Transition durations
             t_off_sleep = self._transition_time(
-                nid, 'switching_off',  'sleeping')
-            t_sleep_on = self._transition_time(
-                nid, 'sleeping',       'switching_on')
-            t_on_active = self._transition_time(
-                nid, 'switching_on',   'active')
-
-            q = entry['queue']
-            head = q[0] if q else None
-            head_phase = head['phase'] if head else None
+                nid, 'switching_off', 'sleeping')
+            t_sleep_on = self._transition_time(nid, 'sleeping', 'switching_on')
+            t_on_active = self._transition_time(nid, 'switching_on', 'active')
 
             if state == 'switching_off':
-                # Ensure head switching_off; reuse its start_time if already present
-                if head_phase != 'switching_off':
-                    q.insert(0, {'phase': 'switching_off',
-                                 'start_time': now, 'finish_time': now + t_off_sleep})
-                    head = q[0]
-                cursor = float(head['finish_time'])
-                # Immediately proceed: sleeping -> switching_on (instant/short) -> active
-                start_on = cursor + float(t_sleep_on)
-                self._append_phase_abs(entry, 'switching_on',
-                                       start_on, t_on_active)
+                # Add switching_off phase
+                if not any(seg['phase'] == 'switching_off' for seg in q):
+                    q.insert(0, {
+                        'phase': 'switching_off',
+                        'start_time': now,
+                        'finish_time': now + t_off_sleep
+                    })
+
+                # After switching_off, add switching_on for earliest availability calculation
+                switching_off_phase = next(
+                    (seg for seg in q if seg['phase'] == 'switching_off'), None)
+                if switching_off_phase:
+                    cursor = float(switching_off_phase['finish_time'])
+                    if not any(seg['phase'] == 'switching_on' for seg in q):
+                        start_on = cursor + float(t_sleep_on)
+                        self._append_phase_abs(
+                            entry, 'switching_on', start_on, t_on_active)
 
             elif state == 'sleeping':
-                # sleeping -> switching_on (instant/short) -> active
-                start_on = now + float(t_sleep_on)
-                self._append_phase_abs(entry, 'switching_on',
-                                       start_on, t_on_active)
+                # For sleeping nodes, calculate when they COULD be available if we started switching_on now
+                if not any(seg['phase'] == 'switching_on' for seg in q):
+                    start_on = now + float(t_sleep_on)
+                    self._append_phase_abs(
+                        entry, 'switching_on', start_on, t_on_active)
 
             elif state == 'switching_on':
-                # Ensure head switching_on; reuse its start_time if already present
-                if head_phase != 'switching_on':
-                    q.insert(0, {'phase': 'switching_on',
-                                 'start_time': now, 'finish_time': now + t_on_active})
-                else:
-                    # normalize finish in case duration changed
-                    head['finish_time'] = float(
-                        head['start_time']) + float(t_on_active)
+                # For switching_on nodes, calculate remaining switching_on time
+                if not any(seg['phase'] == 'switching_on' for seg in q):
+                    q.insert(0, {
+                        'phase': 'switching_on',
+                        'start_time': now,
+                        'finish_time': now + t_on_active
+                    })
 
             elif state == 'active':
                 if job_id is None:
-                    # active & idle: strip stray switching heads (we're already idle)
-                    while q and q[0]['phase'] in ('switching_off', 'switching_on'):
-                        q.pop(0)
-                # if computing, keep existing compute phases (allocator added them)
+                    # active & idle: remove any transition phases since we're already available
+                    entry['queue'] = [seg for seg in q if seg['phase']
+                                      not in ('switching_off', 'switching_on')]
+                # if computing, the allocator should have added compute phases
 
             # release_time = end of last phase, or now if none
             self._recompute_release_at(entry)
@@ -245,6 +268,9 @@ class BaseSmart:
     # ---------------- Allocation and Call me Laters----------------
     def build_callbacks(self):
         execution_finish_lists = []
+
+        if self.current_time == 977.1563697140423:
+            print('here')
 
         for node in self.next_releases:
             queues = node['queue']
@@ -258,6 +284,8 @@ class BaseSmart:
 
             for ef in execution_finish_lists:
                 call_me_later_time = ef-switch_on_durations
+                if call_me_later_time < self.current_time:
+                    continue
                 if call_me_later_time not in self.call_me_laters_tl:
                     self.push_event(call_me_later_time, {
                                     'type': 'CALL_ME_LATER'})
@@ -323,7 +351,7 @@ class BaseSmart:
 
     def _mark_timed_out_nodes(self):
         """
-        For all idle nodes with idle duration exceed timeout, 
+        For all idle nodes with idle duration exceed timeout,
         add them to to_be_switched_off_ids.
         """
         if self.timeout is None:
@@ -423,7 +451,7 @@ class BaseSmart:
                 node_in_selected = False
                 should_keep = False
 
-                for selected, start_time in self.selected_list:
+                for _job, selected, start_time, finish_time in self.selected_list:
                     selected_ids = [n['id'] for n in selected]
                     if nid in selected_ids:
                         node_in_selected = True
@@ -495,6 +523,9 @@ class BaseSmart:
         Rebuild partitions and resource_agenda from current state.
         """
         self.events = []
+
+        if round(self.current_time, 2) == 6594.98:
+            print('here')
 
         # Clear switch off list
         self.to_be_switched_off_ids = []
