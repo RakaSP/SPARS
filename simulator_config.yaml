@@ -1,12 +1,12 @@
 paths:
-  workload: "workloads/generated_200_16.json"
-  platform: "platforms/generated_16.json"
-  output: "results/easy_smart_c1"
+  workload: "workloads/nasa-20-back.json"
+  platform: "platforms/platform-nasa-128.json"
+  output: "results/fcfs_smart"
 
 run:
-  algorithm: "easy_smart"
-  overrun_policy: "continue"
-  timeout: 30
+  algorithm: "fcfs_smart"
+  overrun_policy: "terminate"
+  timeout: 300
   # can be integer epoch, "now", or "YYYY-MM-DD HH:MM:SS"
   start_time: 0
 

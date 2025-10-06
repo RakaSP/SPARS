@@ -37,7 +37,7 @@ class BaseAlgorithm:
         self.state = machines.nodes
         self.machines_transitions = machines.machines_transition
         self.waiting_queue = jobs_manager.waiting_queue
-        self.scheduled_queue = jobs_manager.scheduled_queue
+        self.scheduled_queue = []
         self.events = []
         self.current_time = float(start_time)
         self.timeout = timeout
@@ -106,6 +106,14 @@ class BaseAlgorithm:
             return float(q[-1]['finish_time'])
         # queue empty -> use recorded release_time (0.0 is allowed by your policy)
         return float(entry['release_time'])
+
+    def add_job_to_scheduled_queue(self, job, nodes):
+        self.scheduled_queue.append({'job_id': job['job_id'],
+                                     'subtime': job['subtime'],
+                                     'reqtime': job['reqtime'],
+                                     'runtime': job['runtime'],
+                                     'res': job['res'],
+                                     'nodes': nodes})
 
     # ---------------- Transitions lookup (from machines_transitions) ----------------
 
@@ -248,10 +256,12 @@ class BaseAlgorithm:
         """
         node_by_id = {n['id']: n for n in self.state}
         reserved_node_ids = {
-            nid for j in self.jobs_manager.scheduled_queue for nid in j['nodes']}
+            nid for j in self.scheduled_queue for nid in j['nodes']}
+
+        jobs_to_start = []
 
         # Try to start jobs whose allocated nodes are all active & idle
-        for job in self.jobs_manager.scheduled_queue:
+        for job in self.scheduled_queue:
             node_ids = job['nodes']
             can_start = True
             for nid in node_ids:
@@ -274,6 +284,10 @@ class BaseAlgorithm:
                     'res': res,
                     'nodes': node_ids,
                 })
+                jobs_to_start.append(job)
+
+        self.scheduled_queue = list(
+            filter(lambda job: job not in jobs_to_start, self.scheduled_queue))
 
         # Power: auto-switch ON only nodes that are both reserved & sleeping
         sleeping_reserved = [nid for nid in reserved_node_ids
@@ -304,7 +318,7 @@ class BaseAlgorithm:
         self.reserved.extend(allocated_nodes)
 
         # 2) Register with jobs_manager
-        self.jobs_manager.add_job_to_scheduled_queue(job['job_id'], node_ids)
+        self.add_job_to_scheduled_queue(job, node_ids)
 
         # 3) Compute walltime via slowest node
         compute_speed = min(float(n['compute_speed']) for n in allocated_nodes)
@@ -420,7 +434,7 @@ class BaseAlgorithm:
         self.switching_on, self.switching_off = [], []
 
         scheduled_ids = {
-            nid for j in self.jobs_manager.scheduled_queue for nid in j['nodes']}
+            nid for j in self.scheduled_queue for nid in j['nodes']}
 
         for node in self.state:
             nid = node['id']
@@ -450,6 +464,10 @@ class BaseAlgorithm:
         Rebuild partitions and resource_agenda from current state.
         """
         self.events = []
+        waiting_queue = self.jobs_manager.waiting_queue
+        scheduled_ids = [job['job_id'] for job in self.scheduled_queue]
+        self.waiting_queue = [
+            job for job in waiting_queue if job['job_id'] not in scheduled_ids]
 
         # Reconcile queues (no future phases added here)
         self._rebuild_next_releases_global()

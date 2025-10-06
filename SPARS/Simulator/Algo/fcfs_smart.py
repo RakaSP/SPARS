@@ -162,7 +162,7 @@ class FCFSSmart(BaseSmart):
         # Handle future switch_on via call_me_later
         for switch_on_time in future_switch_on_times:
             self.push_event(switch_on_time, {
-                'type': 'call_me_later'
+                'type': 'call_me_later_so'
             })
 
     # ---------- internals ----------

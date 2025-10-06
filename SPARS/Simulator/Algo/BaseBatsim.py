@@ -6,7 +6,7 @@ class BaseBatsim:
         self.state = machines.nodes
         self.jobs_manager = jobs_manager
         self.waiting_queue = jobs_manager.waiting_queue
-        self.scheduled_queue = jobs_manager.scheduled_queue
+        self.scheduled_queue = []
         self.events = []
         self.current_time = start_time
         self.timeout = timeout
@@ -33,7 +33,15 @@ class BaseBatsim:
     def _agenda_by_id(self):
         return {e['node_id']: e for e in self.compute_agenda}
 
+    def add_job_to_scheduled_queue(self, job, nodes):
+        self.scheduled_queue.append({'job_id': job['job_id'],
+                                     'subtime': job['subtime'],
+                                     'reqtime': job['reqtime'],
+                                     'runtime': job['runtime'],
+                                     'res': job['res'],
+                                     'nodes': nodes})
     # ---------------- Allocation ----------------
+
     def allocate(self, job, allocated_nodes):
         """Register allocation: remove from available, add to allocated, set pre-start release_time."""
         if not allocated_nodes:
@@ -49,7 +57,7 @@ class BaseBatsim:
             n for n in allocated_nodes if n['id'] not in already)
 
         node_ids = [n['id'] for n in allocated_nodes]
-        self.jobs_manager.add_job_to_scheduled_queue(job['job_id'], node_ids)
+        self.add_job_to_scheduled_queue(job, node_ids)
 
         # Pre-start: set release_time = walltime (slowest node)
         compute_speed = min(n['compute_speed'] for n in allocated_nodes)
@@ -125,8 +133,8 @@ class BaseBatsim:
         node_by_id = {n['id']: n for n in self.state}
         agenda = self._agenda_by_id()
         all_allocated_node_ids = []
-
-        for job in self.jobs_manager.scheduled_queue:
+        jobs_to_start = []
+        for job in self.scheduled_queue:
             allocated_node_ids = job['nodes']
             all_allocated_node_ids.extend(allocated_node_ids)
 
@@ -169,10 +177,15 @@ class BaseBatsim:
                     'type': 'execution_start',
                     'nodes': allocated_node_ids,
                 })
+                jobs_to_start.append(job)
+
+        self.scheduled_queue = list(
+            filter(lambda job: job not in jobs_to_start, self.scheduled_queue))
 
         # Power: wake sleeping nodes that are allocated
         switch_on = [
             nid for nid in all_allocated_node_ids if node_by_id[nid]['state'] == 'sleeping']
+
         if switch_on:
             self.push_event(self.current_time, {
                             'type': 'switch_on', 'nodes': switch_on})
@@ -274,6 +287,10 @@ class BaseBatsim:
 
     def prep_schedule(self):
         self.events = []
+        waiting_queue = self.jobs_manager.waiting_queue
+        scheduled_ids = [job['job_id'] for job in self.scheduled_queue]
+        self.waiting_queue = [
+            job for job in waiting_queue if job['job_id'] not in scheduled_ids]
         # Partition nodes from current state (single pass)
         self.available, self.allocated = [], []
         allocated_ids = []

@@ -461,7 +461,7 @@ class BaseSmart:
 
         now = self.current_time
 
-        if self.current_time == 709:
+        if self.current_time == 7822:
             print('here')
 
         # NEW: refresh (adds new idle nodes, removes non-idle)
@@ -511,13 +511,17 @@ class BaseSmart:
                 elif should_keep:
                     # Node is in selected_list and we need to keep it
                     keep.append(t)
-                    next_earliest = t['time'] if next_earliest is None else min(
-                        next_earliest, t['time'])
+                    # Only set next_earliest if it's in the future
+                    if t['time'] > now:
+                        next_earliest = t['time'] if next_earliest is None else min(
+                            next_earliest, t['time'])
             else:
                 # Timeout not reached yet, keep tracking
                 keep.append(t)
-                next_earliest = t['time'] if next_earliest is None else min(
-                    next_earliest, t['time'])
+                # Only set next_earliest if it's in the future (though it should always be in this case)
+                if t['time'] > now:
+                    next_earliest = t['time'] if next_earliest is None else min(
+                        next_earliest, t['time'])
 
         self.timeout_list = keep
 
@@ -525,7 +529,7 @@ class BaseSmart:
             self.push_event(now, {'type': 'switch_off', 'nodes': switch_off})
 
         if next_earliest is not None and self.next_timeout_at != next_earliest:
-            self.push_event(next_earliest, {'type': 'call_me_later'})
+            self.push_event(next_earliest, {'type': 'call_me_later_to'})
             self.next_timeout_at = next_earliest
 
     # ---------------- Partition & prep ----------------
