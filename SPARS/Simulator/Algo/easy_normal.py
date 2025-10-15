@@ -25,7 +25,7 @@ class EASYNormal(FCFSNormal):
             last_host = next_releases[p_job['res'] - 1]
             p_start_t = last_host['release_time']
 
-            candidates = [r['id']
+            candidates = [r['node_id']
                           for r in next_releases if r['release_time'] <= p_start_t]
             head_job_reservation = candidates[-p_job['res']:]
 
@@ -75,10 +75,10 @@ class EASYNormal(FCFSNormal):
         required_time = float(job.get('reqtime', job.get('runtime')))
 
         # Build node_id -> release_time from the resource agenda
-        resource_agenda_by_id = self._agenda_by_id()
+        next_releases_by_id = self._releases_by_id()
         release_times_by_node_id = {
             int(node_id): float(entry.get('release_time'))
-            for node_id, entry in resource_agenda_by_id.items()
+            for node_id, entry in next_releases_by_id.items()
         }
 
         # Normalize candidates and filter obviously infeasible ones
@@ -95,7 +95,7 @@ class EASYNormal(FCFSNormal):
                 continue
             power = float(node.get('power'))
             remaining_idle_timeout = float(
-                self._remaining_idle_timeout_seconds(node_id))
+                super()._remaining_idle_timeout(node_id))
             normalized.append({
                 'node': node,
                 'node_id': node_id,

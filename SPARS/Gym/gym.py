@@ -105,7 +105,7 @@ class HPCGymEnv(gym.Env):
         """Thomas Calculate Reward"""
         future_monitor = self.simulator.Monitor
         reward = reward_function.calculate_reward(
-            monitor, future_monitor, self.simulator.jobs_manager.waiting_queue, self.simulator.jobs_manager.scheduled_queue)
+            monitor, future_monitor, self.simulator.jobs_manager.waiting_queue)
         done = not self.simulator.is_running
         observation = self.get_observation()
 

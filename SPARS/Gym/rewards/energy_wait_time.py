@@ -37,9 +37,9 @@ class Reward:
         """
         submit_by_id = {}
         for job in monitor.jobs_submission_log:
-            jid = self._get_first_key(job, ["job_id", "id", "jid"])
+            jid = self._get_first_key(job, ["job_id"])
             submit = self._get_first_key(
-                job, ["submit_time", "arrival_time", "arrival", "queued_time", "time"])
+                job, ["subtime"])
             if jid is not None and submit is not None:
                 submit_by_id[jid] = float(submit)
 
@@ -47,8 +47,8 @@ class Reward:
         for job in monitor.jobs_execution_log:
             jid = self._get_first_key(job, ["job_id", "id", "jid"])
             start = self._get_first_key(
-                job, ["start_time", "dispatch_time", "begin_time"])
-            submit = submit_by_id.get(jid, None)
+                job, ["start_time"])
+            submit = submit_by_id.get(jid)
             if submit is not None and start is not None:
                 wait = float(start) - float(submit)
                 if wait > 0:
@@ -66,10 +66,10 @@ class Reward:
         Returns a scalar reward (torch tensor) on self.device.
         Higher energy waste or waiting time => more negative reward.
         """
-        total_waste = sum(float(e.get('energy_waste', 0.0))
+        total_waste = sum(float(e.get('energy_waste'))
                           for e in monitor.energy)
         total_wait = sum(
-            max(0.0, float(current_time) - float(j.get('subtime', 0.0)))
+            float(current_time) - float(j.get('subtime'))
             for j in waiting_queue
         )
 

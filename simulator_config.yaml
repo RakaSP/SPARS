@@ -1,20 +1,20 @@
 paths:
   workload: "workloads/nasa-20-back.json"
   platform: "platforms/platform-nasa-128.json"
-  output: "results/fcfs_smart"
+  output: "results/rl_workshop"
 
 run:
-  algorithm: "fcfs_smart"
+  algorithm: "easy_normal"
   overrun_policy: "terminate"
-  timeout: 300
+  timeout: null
   # can be integer epoch, "now", or "YYYY-MM-DD HH:MM:SS"
   start_time: 0
 
 rl:
-  enabled: false
+  enabled: true
   type: "discrete" # "discrete" | "continuous"
   dt: 1800 # required when type == "discrete"
-  device: "cpu" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)
+  device: "cuda" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)
   epochs: 10
   num_nodes: 128
 
@@ -25,7 +25,7 @@ rl:
       params:
         obs_dim: 11
         embed_dim: 128
-        device: "cpu" # optional; "auto" will resolve; omit to inherit rl.device
+        device: "cuda" # optional; "auto" will resolve; omit to inherit rl.device
       optimizer:
         class: "torch.optim:Adam"
         params:
@@ -36,11 +36,13 @@ rl:
       params:
         obs_dim: 11
         act_dim: 1
-        device: "cpu"
+        device: "cuda"
       optimizer:
         class: "torch.optim:Adam"
         params:
           lr: 0.0003 # REQUIRED (no silent default)
+
+    import: import
 
   # Single-agent assignment — set to "thomas" or "spars"
   assign: "thomas"
