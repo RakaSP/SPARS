@@ -148,8 +148,7 @@ class BaseBatsim:
                     break
 
             if executable:
-                if job['job_id'] == 34273:
-                    print('here')
+
                 # Stamp start/finish & mark started
                 comp_speeds = [node_by_id[nid]['compute_speed']
                                for nid in allocated_node_ids]

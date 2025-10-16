@@ -81,6 +81,15 @@ class HPCGymEnv(gym.Env):
 
         while not need_rl and self.simulator.is_running:
             events = self.simulator.proceed()
+
+            for event_list in events['event_list']:
+                for event in event_list['events']:
+                    if event['type'] == 'CALL_RL':
+                        need_rl = True
+                        break
+                if need_rl:
+                    break
+
             scheduler_message = self.simulator.scheduler.schedule(
                 self.simulator.current_time)
 
