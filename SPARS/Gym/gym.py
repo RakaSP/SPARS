@@ -33,31 +33,6 @@ class HPCGymEnv(gym.Env):
         self.simulator = simulator
         self.device = device
 
-    def advance(self):
-        need_rl = False
-        while not need_rl and self.simulator.is_running:
-            events = self.simulator.proceed()
-            scheduler_message = self.simulator.scheduler.schedule(self.simulator.current_time, self.simulator.PlatformControl.get_state(
-            ), self.simulator.jobs_manager.waiting_queue, self.simulator.jobs_manager.scheduled_queue)
-
-            for _data in scheduler_message:
-                timestamp = _data['timestamp']
-                _events = _data['events']
-                for event in _events:
-                    self.simulator.push_event(timestamp, event)
-
-            for event_list in events['event_list']:
-                for event in event_list['events']:
-                    if event['type'] == 'CALL_RL':
-                        need_rl = True
-                        break
-                if need_rl:
-                    break
-
-        observation = self.get_observation()
-
-        return observation
-
     def step(self, actions):
         state = self.simulator.PlatformControl.get_state()
         logger.info(f"Action taken: {actions}")
@@ -89,6 +64,8 @@ class HPCGymEnv(gym.Env):
                         break
                 if need_rl:
                     break
+            if need_rl:
+                break
 
             scheduler_message = self.simulator.scheduler.schedule(
                 self.simulator.current_time)
@@ -98,14 +75,6 @@ class HPCGymEnv(gym.Env):
                 _events = _data['events']
                 for event in _events:
                     self.simulator.push_event(timestamp, event)
-
-            for event_list in events['event_list']:
-                for event in event_list['events']:
-                    if event['type'] == 'CALL_RL':
-                        need_rl = True
-                        break
-                if need_rl:
-                    break
 
         next_current_time = self.simulator.current_time
         reward_function = Reward()
