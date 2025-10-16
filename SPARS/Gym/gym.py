@@ -77,6 +77,8 @@ class HPCGymEnv(gym.Env):
 
         need_rl = False
 
+        prev_current_time = self.simulator.current_time
+
         while not need_rl and self.simulator.is_running:
             events = self.simulator.proceed()
             scheduler_message = self.simulator.scheduler.schedule(
@@ -96,6 +98,7 @@ class HPCGymEnv(gym.Env):
                 if need_rl:
                     break
 
+        next_current_time = self.simulator.current_time
         reward_function = Reward()
 
         """SPARS Calculate Reward"""
@@ -105,7 +108,7 @@ class HPCGymEnv(gym.Env):
         """Thomas Calculate Reward"""
         future_monitor = self.simulator.Monitor
         reward = reward_function.calculate_reward(
-            monitor, future_monitor, self.simulator.jobs_manager.waiting_queue)
+            monitor, future_monitor, self.simulator.jobs_manager.waiting_queue, prev_current_time, next_current_time)
         done = not self.simulator.is_running
         observation = self.get_observation()
 

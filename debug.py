@@ -243,6 +243,8 @@ def main():
 
                 next_observation, reward, done = env.step(logits)
 
+                logger.info(f"Step reward: {reward}")
+
                 # store experience (detach from graph)
                 memory_actions.append(logits.detach())
                 memory_features.append(features_.detach())

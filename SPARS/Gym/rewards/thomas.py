@@ -6,18 +6,10 @@ logger = logging.getLogger("runner")
 
 
 class Reward:
-    """
-    reward_per_node = α * (-energy_waste_term) + β * (-waiting_time_term)
-
-    If use_mean_wait=True, the waiting-time term uses the MEAN wait of the jobs
-    that started in THIS step (next_monitor vs monitor). Otherwise it uses SUM.
-    """
-
     def __init__(
         self,
         alpha: float = 0.1,
         beta: float = 0.9,
-        use_mean_wait: bool = True,
         device: str = "cuda",
         require_grad: bool = True,
         # Δt (used in normalization), was 1800 literal
@@ -25,7 +17,6 @@ class Reward:
     ) -> None:
         self.alpha = float(alpha)
         self.beta = float(beta)
-        self.use_mean_wait = bool(use_mean_wait)
         self.device = T.device(device)
         self.require_grad = bool(require_grad)
         self.tick_seconds = float(tick_seconds)
@@ -37,18 +28,13 @@ class Reward:
         return T.tensor(value, dtype=T.float32, device=self.device, requires_grad=self.require_grad)
 
     @staticmethod
-    def _sum_wait(logs: list[Dict[str, Any]]) -> float:
+    def _sum_wait(logs: list[Dict[str, Any]], time) -> float:
         # Robust to missing keys/None
         total = 0.0
         for log in logs:
-            try:
-                st = log["start_time"]
-                sub = log["subtime"]
-                if st is not None and sub is not None:
-                    total += float(st - sub)
-            except Exception:
-                # Ignore malformed entries but keep training running
-                continue
+            sub = log["subtime"]
+            total += (time - sub)
+
         return total
 
     # --------------------------
@@ -59,10 +45,10 @@ class Reward:
         R1 = (next_total_waste - current_total_waste) normalized by total ECR * Δt
         Assumes each node is ACTIVE: uses its dvfs_mode to fetch ECR.
         """
-        current_total_waste = self._sum_wait([{"start_time": e.get(
-            "energy_waste"), "subtime": 0.0} for e in monitor.energy])
-        next_total_waste = self._sum_wait([{"start_time": e.get(
-            "energy_waste"), "subtime": 0.0} for e in next_monitor.energy])
+        current_total_waste = sum(e.get('energy_waste')
+                                  for e in monitor.energy)
+        next_total_waste = sum(e.get('energy_waste')
+                               for e in next_monitor.energy)
         R1 = next_total_waste - current_total_waste
 
         # Build index: node_id -> dvfs_profiles
@@ -79,37 +65,36 @@ class Reward:
         normalized_R1 = -self.alpha * (R1 / denom)
         return self._to_tensor(normalized_R1)
 
-    def waiting_time_reward(self, monitor, next_monitor, waiting_queue) -> T.Tensor:
-        """
-        Step waiting-time change:
-          step_total_wt = (Σ wait in next) - (Σ wait in current)
-        If use_mean_wait=True, divide by #newly-started jobs in this step.
+    def waiting_time_reward(self, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
 
-        Normalization:
-          - mean mode  : divide by Δt
-          - sum mode   : divide by (#waiting) * Δt
-        """
-        current_total_wt = self._sum_wait(monitor.jobs_submission_log)
-        next_total_wt = self._sum_wait(next_monitor.jobs_submission_log)
-        step_total_wt = next_total_wt - current_total_wt
+        total_waiting_time = 0
+        max_total_waiting_time = 0
 
-        # how many NEW jobs started this step (log length increase)
-        new_started = len(getattr(next_monitor, "jobs_submission_log")
-                          ) - len(getattr(monitor, "jobs_submission_log"))
+        jobs_submission_log = next_monitor.jobs_submission_log
+        jobs_submitted_ids = {job["job_id"] for job in jobs_submission_log}
+        for job in jobs_submission_log:
+            if current_time < job["start_time"] <= next_time:
+                total_waiting_time += (job["start_time"] -
+                                       max(job['subtime'], current_time))
+                max_total_waiting_time += (next_time -
+                                           max(job['subtime'], current_time))
 
-        if self.use_mean_wait and new_started > 0:
-            metric = step_total_wt / new_started
-            denom = max(self.tick_seconds, 1e-9)
+        jobs_arrival_log = next_monitor.jobs_arrival_log
+
+        for job in jobs_arrival_log:
+            if job['job_id'] not in jobs_submitted_ids:
+                total_waiting_time += (next_time -
+                                       max(job['subtime'], current_time))
+                max_total_waiting_time += (next_time -
+                                           max(job['subtime'], current_time))
+        if max_total_waiting_time > 0:
+            R2 = total_waiting_time / max_total_waiting_time
         else:
-            metric = step_total_wt
+            R2 = 0.0
 
-            total_not_executed = len(waiting_queue)
-            denom = max(total_not_executed * self.tick_seconds, 1e-9)
+        return self._to_tensor(-self.beta * R2)
 
-        normalized_R2 = -self.beta * (metric / denom)
-        return self._to_tensor(normalized_R2)
-
-    def calculate_reward(self, monitor, next_monitor, waiting_queue) -> T.Tensor:
+    def calculate_reward(self, monitor, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
         return self.wasted_energy_reward(monitor, next_monitor) + \
             self.waiting_time_reward(
-                monitor, next_monitor, waiting_queue)
+                next_monitor, waiting_queue, current_time, next_time)

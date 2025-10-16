@@ -20,7 +20,6 @@ def action_translator(logits, state, current_time):
     """
     x = T.as_tensor(logits)
 
-    # Drop batch dim if [1,N,2]
     if x.dim() == 3 and x.size(0) == 1:
         x = x[0]
     if x.dim() != 2 or x.size(1) != 2:
@@ -45,30 +44,29 @@ def action_translator(logits, state, current_time):
 
     # Build current sets
     current_idle = []                # active & job_id is None
-    current_inactive = []            # state == 'inactive'
-    # (active & job_id != None) OR switching_{on,off}
+    current_sleeping = []            # state == 'sleeping'
     unable_to_make_action = []
 
     for i, n in enumerate(state):
-        st = str(n.get('state', '')).lower()
-        jid = n.get('job_id', None)
+        st = str(n.get('state')).lower()
+        jid = n.get('job_id')
 
         if st == 'active' and jid is None:
             current_idle.append(i)
-        if st == 'inactive':
-            current_inactive.append(i)
+        if st == 'sleeping':
+            current_sleeping.append(i)
         if (st == 'active' and jid is not None) or (st in ('switching_on', 'switching_off')):
             unable_to_make_action.append(i)
 
     unable = set(unable_to_make_action)
     idle_set = set(current_idle)
-    inactive_set = set(current_inactive)
+    sleeping_set = set(current_sleeping)
 
     # Apply filters:
     # - ignore any node in 'unable'
-    # - switch_on only if currently inactive
+    # - switch_on only if currently sleeping
     # - switch_off only if currently idle
-    switch_on = [i for i in switch_on if i not in unable and i in inactive_set]
+    switch_on = [i for i in switch_on if i not in unable and i in sleeping_set]
     switch_off = [i for i in switch_off if i not in unable and i in idle_set]
 
     events = []
