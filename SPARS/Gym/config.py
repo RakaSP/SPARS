@@ -45,8 +45,8 @@ CFG = {
     "translator": "scalar_active_target",
     # "translator": "thomas",
     "feasible_mask": "default",
-    "reward": {"name": "energy_wait_time", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
-    # "reward": {"name": "thomas", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
+    # "reward": {"name": "energy_wait_time", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
+    "reward": {"name": "thomas", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
     "learner": "a2c",
     "discounted_returns": "a2c",
 }

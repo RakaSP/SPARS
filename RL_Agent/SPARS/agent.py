@@ -1,27 +1,49 @@
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
-class ActorCriticMLP(nn.Module):
-    def __init__(self, obs_dim, act_dim, device, hidden_sizes=(128, 128)):
+class ActorCritic(nn.Module):
+    def __init__(self, obs_dim, device):
         super().__init__()
-        # shared body
         self.device = device
 
-        layers = []
-        last = obs_dim
-        for h in hidden_sizes:
-            layers += [nn.Linear(last, h), nn.ReLU()]
-            last = h
-        self.body = nn.Sequential(*layers)
+        # ---- Shared Body ----
+        self.body = nn.Sequential(
+            nn.Linear(obs_dim, 128),
+            nn.ReLU(),
+            nn.LayerNorm(128),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.LayerNorm(64)
+        )
 
-        # separate heads
-        self.policy_head = nn.Linear(last, act_dim)
-        self.value_head = nn.Linear(last, 1)
+        # ---- Actor Head ----
+        self.actor_head = nn.Sequential(
+            nn.Linear(64, 1),
+            nn.Sigmoid()
+        )
 
+        # ---- Critic Head ----
+        self.critic_head = nn.Linear(64, 1)
+
+        self.apply(self._init_weights)
         self.to(device)
 
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)
+            nn.init.zeros_(m.bias)
+
     def forward(self, obs):
-        x = self.body(obs)
-        logits = self.policy_head(x)        # [B, act_dim]
-        value = self.value_head(x).squeeze(-1)  # [B]
-        return logits, value
+        """
+        obs: [B, F] (F = obs_dim)
+        Output:
+          action: [1], ∈ [0,1]
+          value : [1]
+        """
+        x = self.body(obs)                    # [B, 64]
+        x_mean = x.mean(dim=0, keepdim=True)  # [1, 64]
+        action = self.actor_head(x_mean).view(-1)  # [1]
+        value = self.critic_head(x_mean).view(-1)  # [1]
+        return action, value

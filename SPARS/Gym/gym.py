@@ -42,7 +42,7 @@ class HPCGymEnv(gym.Env):
             self.simulator.Monitor.num_nodes, state, actions, self.simulator.current_time)
 
         """Thomas Action Translator"""
-        # monitor = copy.deepcopy(self.simulator.Monitor)
+        monitor = copy.deepcopy(self.simulator.Monitor)
         # rl_events = action_translator(
         #     actions, state, self.simulator.current_time)
 
@@ -80,13 +80,13 @@ class HPCGymEnv(gym.Env):
         reward_function = Reward()
 
         """SPARS Calculate Reward"""
-        reward = reward_function.calculate_reward(
-            self.simulator.Monitor, self.simulator.jobs_manager.waiting_queue, self.simulator.current_time)
+        # reward = reward_function.calculate_reward(
+        #     self.simulator.Monitor, self.simulator.jobs_manager.waiting_queue, self.simulator.current_time)
 
         """Thomas Calculate Reward"""
-        # future_monitor = self.simulator.Monitor
-        # reward = reward_function.calculate_reward(
-        #     monitor, future_monitor, self.simulator.jobs_manager.waiting_queue, prev_current_time, next_current_time)
+        future_monitor = self.simulator.Monitor
+        reward = reward_function.calculate_reward(
+            monitor, future_monitor, self.simulator.jobs_manager.waiting_queue, prev_current_time, next_current_time)
 
         done = not self.simulator.is_running
         observation = self.get_observation()

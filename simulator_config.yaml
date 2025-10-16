@@ -32,10 +32,9 @@ rl:
           lr: 0.0003
 
     spars:
-      class: "RL_Agent.SPARS.agent:ActorCriticMLP"
+      class: "RL_Agent.SPARS.agent:ActorCritic"
       params:
         obs_dim: 11
-        act_dim: 1
         device: "cuda"
       optimizer:
         class: "torch.optim:Adam"

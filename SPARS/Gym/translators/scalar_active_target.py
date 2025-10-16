@@ -19,8 +19,8 @@ def action_translator(num_nodes, state, logits, current_time):
     Returns:
         List of event dicts: [{'time': t, 'event': {'type': 'switch_on/off', 'nodes': [...]}}]
     """
-    logits = T.sigmoid(logits)
-    num_active_nodes = logits * num_nodes
+
+    num_active_nodes = T.round(logits * num_nodes)
     current_active = sum(1 for n in state if n.get('state') == 'active')
     logger.info(f'Translated Actions: {num_active_nodes} active nodes')
 
