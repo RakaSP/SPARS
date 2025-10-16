@@ -10,7 +10,7 @@ from SPARS.Utils import get_logger, log_output
 from SPARS.Simulator.Simulator import Simulator, run_simulation
 
 # IMPORTANT: load Gym config BEFORE importing the env so monkey-patches apply
-from SPARS.Gym import config          # your pluggable Gym setup
+from SPARS.Gym import config  # monkey patching the gym config
 from SPARS.Gym import utils as G
 from SPARS.Gym.gym import HPCGymEnv
 
@@ -235,11 +235,11 @@ def main():
                 # your policy/value forward
 
                 # --- SPARS ---
-                # logits, values = model(features_)
+                logits, values = model(features_)
 
                 # --- Thomas Reshape ---
-                features_reshaped = features_.reshape(1, num_nodes, 11)
-                logits, values = model(features_reshaped)
+                # features_reshaped = features_.reshape(1, num_nodes, 11)
+                # logits, values = model(features_reshaped)
 
                 next_observation, reward, done = env.step(logits)
 

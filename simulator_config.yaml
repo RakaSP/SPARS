@@ -25,11 +25,11 @@ rl:
       params:
         obs_dim: 11
         embed_dim: 128
-        device: "cuda" # optional; "auto" will resolve; omit to inherit rl.device
+        device: "cuda" # "auto" will resolve; omit to inherit rl.device
       optimizer:
         class: "torch.optim:Adam"
         params:
-          lr: 0.0003 # REQUIRED (no silent default)
+          lr: 0.0003
 
     spars:
       class: "RL_Agent.SPARS.agent:ActorCriticMLP"
@@ -40,12 +40,12 @@ rl:
       optimizer:
         class: "torch.optim:Adam"
         params:
-          lr: 0.0003 # REQUIRED (no silent default)
+          lr: 0.0003
 
     import: import
 
   # Single-agent assignment — set to "thomas" or "spars"
-  assign: "thomas"
+  assign: "spars"
 
 logging:
   level: "INFO"
