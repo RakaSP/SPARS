@@ -1,8 +1,8 @@
-import logging
+from SPARS.Utils import get_global_logger
 from typing import Dict, Any
 import torch as T
 
-logger = logging.getLogger("runner")
+logger = get_global_logger()
 
 
 class Reward:

@@ -1,6 +1,6 @@
 # SPARS/Simulator/Simulator.py
 import json
-import logging
+from SPARS.Utils import get_global_logger
 from math import ceil
 from bisect import bisect_left
 
@@ -10,7 +10,7 @@ from SPARS.Simulator.MachineMonitor import Monitor
 from SPARS.Simulator.PlatformControl import PlatformControl
 from SPARS.Utils import log_output
 
-logger = logging.getLogger("runner")
+logger = get_global_logger()
 
 
 _EVENT_PRIORITY = {
@@ -193,7 +193,7 @@ class Simulator:
                 if k in ("start_time", "subtime") and isinstance(v, (float, int)):
                     v = round(v, 2)
                 row.append(f"{k}={v}")
-            logger.info(" ".join(row))
+            logger.trace(" ".join(row))
 
         self.Monitor.record(mode='before', current_time=self.current_time)
 

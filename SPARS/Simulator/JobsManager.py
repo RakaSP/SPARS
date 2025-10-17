@@ -1,5 +1,5 @@
-import logging
-logger = logging.getLogger("runner")
+from SPARS.Utils import get_global_logger
+logger = get_global_logger()
 
 
 class JobsManager:

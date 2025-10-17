@@ -5,36 +5,6 @@ import torch as T
 from torchrl.modules import OneHotCategorical
 
 
-def discounted_returns(rewards, gamma, time_dim=-1):
-    """
-    rewards: tensor with time along `time_dim`
-    gamma: float or 0-D tensor (can require_grad)
-    returns: discounted-to-go along `time_dim` (same shape as rewards)
-    """
-    assert T.is_tensor(rewards), "rewards must be a tensor"
-    dtype, device = rewards.dtype, rewards.device
-
-    if time_dim != -1:
-        rewards = rewards.transpose(time_dim, -1)  # shape: [..., seq_len]
-
-    seq_len = rewards.size(-1)
-
-    if T.is_tensor(gamma):
-        gamma = gamma.to(device=device, dtype=dtype)
-    else:
-        gamma = T.tensor(gamma, device=device, dtype=dtype)
-
-    weighted = rewards.view(-1, 1) * gamma
-    flipped = T.flip(weighted, dims=[-1])
-    csum = T.cumsum(flipped, dim=-1)
-    disc = T.flip(csum, dims=[-1]) / gamma
-
-    if time_dim != -1:
-        disc = disc.transpose(-1, time_dim)
-
-    return disc
-
-
 def learn(actor, critic, optim, done, saved_experiences, next_observation,
           gamma: float = 0.99, entropy_coef: float = 0.01):
 

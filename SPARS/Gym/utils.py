@@ -28,8 +28,7 @@ def get_feasible_mask(
 
 
 def learn(*args, **kwargs): return _unconfigured("learn")
-def discounted_returns(
-    *args, **kwargs): return _unconfigured("discounted_returns")
+
 
 # Reward is called like a class/zero-arg factory in env code; keep as callable placeholder.
 

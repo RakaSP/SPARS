@@ -1,9 +1,9 @@
 # SPARS/Gym/translators/scalar_active_target.py
 # NOTE: Logic unchanged; comments added only.
-import logging
+from SPARS.Utils import get_global_logger
 import torch as T
 
-logger = logging.getLogger("runner")
+logger = get_global_logger()
 
 
 def action_translator(logits, state, current_time):

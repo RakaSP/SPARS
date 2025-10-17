@@ -2,36 +2,9 @@
 # NOTE: Logic kept as-is; comments mark known issues/TODOs.
 from torch import nn
 import torch as T
+from SPARS.Utils import get_global_logger
 
-
-def discounted_returns(rewards, gamma, time_dim=-1):
-    """
-    rewards: tensor with time along `time_dim`
-    gamma: float or 0-D tensor (can require_grad)
-    returns: discounted-to-go along `time_dim` (same shape as rewards)
-    """
-    assert T.is_tensor(rewards), "rewards must be a tensor"
-    dtype, device = rewards.dtype, rewards.device
-
-    if time_dim != -1:
-        rewards = rewards.transpose(time_dim, -1)  # shape: [..., seq_len]
-
-    seq_len = rewards.size(-1)
-
-    if T.is_tensor(gamma):
-        gamma = gamma.to(device=device, dtype=dtype)
-    else:
-        gamma = T.tensor(gamma, device=device, dtype=dtype)
-
-    weighted = rewards.view(-1, 1) * gamma
-    flipped = T.flip(weighted, dims=[-1])
-    csum = T.cumsum(flipped, dim=-1)
-    disc = T.flip(csum, dims=[-1]) / gamma
-
-    if time_dim != -1:
-        disc = disc.transpose(-1, time_dim)
-
-    return disc
+logger = get_global_logger()
 
 
 def learn(model, model_opt, done, saved_experiences, next_observation,
@@ -98,8 +71,8 @@ def learn(model, model_opt, done, saved_experiences, next_observation,
     if len(advantages.shape) == 1:
         advantages = advantages.unsqueeze(1).unsqueeze(2).unsqueeze(3)
 
-    print("log_probs.shape =", log_probs.shape)
-    print("advantages.shape =", advantages.shape)
+    logger.info(f"log_probs.shape = {log_probs.shape}")
+    logger.info(f"advantages.shape = {advantages.shape}")
     policy_loss = -(log_probs * advantages).mean()
     value_loss = (returns - values).pow(2).e**0.5 if False else (returns -
                                                                  values).pow(2).mean()  # NOTE: keep original mean

@@ -11,70 +11,71 @@ from typing import Optional
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# --- Optional: add a TRACE level (between NOTSET=0 and DEBUG=10) ---
 TRACE = 5
 logging.addLevelName(TRACE, "TRACE")
+logging.Logger.trace = lambda self, msg, * \
+    args, **kwargs: self.log(TRACE, msg, *args, **kwargs)
+
+_global_logger = None
+_logger_config = None
 
 
-def _trace(self, msg, *args, **kwargs):
-    if self.isEnabledFor(TRACE):
-        self._log(TRACE, msg, args, **kwargs)
-
-
-logging.Logger.trace = _trace  # type: ignore[attr-defined]
-
-# --- Factory ---
-
-
-def get_logger(
-    name: Optional[str] = None,
-    level: str | int = "INFO",
+def setup_global_logger(
+    name: str = "runner",
+    level: str = "INFO",
     log_file: Optional[str] = None,
-    propagate: bool = False,
-) -> logging.Logger:
-    """
-    Create a configured logger.
-    - level: "DEBUG"/"INFO"/... or int (e.g., 10) or "TRACE"
-    - log_file: if given, also logs to a file (UTF-8)
-    """
-    logger = logging.getLogger(name if name else __name__)
-    if logger.handlers:  # avoid duplicate handlers when called multiple times
-        return logger
+    propagate: bool = False
+):
+    global _logger_config
+    _logger_config = {
+        "name": name,
+        "level": level,
+        "log_file": log_file,
+        "propagate": propagate
+    }
 
-    # Resolve level (env var wins if set)
-    env_level = os.getenv("LOG_LEVEL")
-    level_str = (env_level or str(level)).upper()
-    level_value = {
-        "TRACE": TRACE,
-        "DEBUG": logging.DEBUG,
-        "INFO": logging.INFO,
-        "WARNING": logging.WARNING,
-        "ERROR": logging.ERROR,
-        "CRITICAL": logging.CRITICAL,
-    }.get(level_str, logging.INFO)
-    logger.setLevel(level_value)
-    logger.propagate = propagate
 
-    # Shared formatter
-    fmt = "%(asctime)s | %(levelname)s | %(name)s:%(lineno)d - %(message)s"
-    datefmt = "%Y-%m-%d %H:%M:%S"
-    formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
+def get_global_logger() -> logging.Logger:
+    global _global_logger, _logger_config
 
-    # Console handler
-    ch = logging.StreamHandler()
-    # you can choose a different threshold per handler
-    ch.setLevel(level_value)
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
+    if _global_logger is None:
+        if _logger_config is None:
+            # Default config if not setup
+            _logger_config = {"name": "runner", "level": "INFO",
+                              "log_file": None, "propagate": False}
 
-    # Optional file handler
-    if log_file:
-        fh = logging.FileHandler(log_file, encoding="utf-8")
-        fh.setLevel(level_value)
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
+        logger = logging.getLogger(_logger_config["name"])
 
-    return logger
+        level_value = {
+            "TRACE": TRACE,
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL,
+        }.get(_logger_config["level"].upper(), logging.INFO)
+        logger.setLevel(level_value)
+        logger.propagate = _logger_config["propagate"]
+
+        fmt = "%(asctime)s | %(levelname)s | %(name)s:%(lineno)d - %(message)s"
+        datefmt = "%Y-%m-%d %H:%M:%S"
+        formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
+
+        ch = logging.StreamHandler()
+        ch.setLevel(level_value)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+
+        if _logger_config["log_file"]:
+            fh = logging.FileHandler(
+                _logger_config["log_file"], encoding="utf-8")
+            fh.setLevel(level_value)
+            fh.setFormatter(formatter)
+            logger.addHandler(fh)
+
+        _global_logger = logger
+
+    return _global_logger
 
 
 def _to_int_series(s):

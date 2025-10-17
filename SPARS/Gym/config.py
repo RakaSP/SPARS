@@ -33,10 +33,6 @@ LEARNERS = {
     # "my_a2c": "mypkg.learners:my_a2c",
 }
 
-RETURNS = {
-    "a2c": "SPARS.Gym.learners.a2c:discounted_returns",
-    # "my_a2c": "mypkg.learners:my_discounted_returns",
-}
 
 # Choose by local names (or use dotted strings directly)
 CFG = {
@@ -46,9 +42,8 @@ CFG = {
     # "translator": "thomas",
     "feasible_mask": "default",
     # "reward": {"name": "energy_wait_time", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
-    "reward": {"name": "thomas", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
+    "reward": {"name": "thomas", "params": {"alpha": 0.3, "beta": 0.7, "device": "cuda"}},
     "learner": "a2c",
-    "discounted_returns": "a2c",
 }
 
 # ---- Resolve using ONLY this config's maps (no library defaults) ------------
@@ -85,8 +80,6 @@ feature_extractor = _resolve_from_map(
 translator = _resolve_from_map(TRANSLATORS,       CFG["translator"])
 feasible_mask = _resolve_from_map(FEASIBLE_MASKS,    CFG["feasible_mask"])
 learner = _resolve_from_map(LEARNERS,          CFG["learner"])
-discounted_returns = _resolve_from_map(
-    RETURNS,           CFG["discounted_returns"])
 reward_instance = _resolve_reward(CFG["reward"])
 
 # ---- Monkey-patch utils BEFORE env import so old imports keep working -------
@@ -94,7 +87,6 @@ G.feature_extraction = feature_extractor
 G.action_translator = translator
 G.get_feasible_mask = feasible_mask
 G.learn = learner
-G.discounted_returns = discounted_returns
 
 
 def _reward_factory():

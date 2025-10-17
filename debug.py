@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import torch as T
 
-from SPARS.Utils import get_logger, log_output
+from SPARS.Utils import setup_global_logger, get_global_logger, log_output
 from SPARS.Simulator.Simulator import Simulator, run_simulation
 
 # IMPORTANT: load Gym config BEFORE importing the env so monkey-patches apply
@@ -171,11 +171,13 @@ def main():
     cfg = _load_config(DEFAULT_CFG_PATH)
 
     # --- Logging ---
-    logger = get_logger(
+    setup_global_logger(
         "runner",
         level=cfg["logging"]["level"],
         log_file=cfg["logging"]["file"],
     )
+
+    logger = get_global_logger()
 
     # --- Config Unpack (only the pieces you still use) ---
     output_path = cfg["paths"]["output"]

@@ -1,8 +1,8 @@
 # SPARS/Gym/rewards/energy_wait_time.py
-import logging
+from SPARS.Utils import get_global_logger
 import torch as T
 
-logger = logging.getLogger("runner")
+logger = get_global_logger()
 
 
 class Reward:

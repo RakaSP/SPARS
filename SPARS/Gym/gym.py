@@ -2,18 +2,17 @@
 import copy
 import numpy as np
 import gymnasium as gym
-import logging
+from SPARS.Utils import get_global_logger
 import torch as T
 
 # import your real Simulator and RJMS
 from SPARS.Gym.utils import Reward, action_translator, get_feasible_mask
-from SPARS.Simulator.Simulator import Simulator
 
 from SPARS.Gym.utils import feature_extraction
 
 CPU_DEVICE = T.device("cpu")
 
-logger = logging.getLogger("runner")
+logger = get_global_logger()
 
 
 class HPCGymEnv(gym.Env):

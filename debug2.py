@@ -26,7 +26,7 @@ except Exception:
     spars_get_logger = None
     spars_log_output = None
 
-import logging
+from SPARS.Utils import get_global_logger
 
 
 def _fallback_get_logger(name: str, level: str = "INFO", log_file: str | None = None):
