@@ -42,7 +42,7 @@ CFG = {
     # "translator": "thomas",
     "feasible_mask": "default",
     # "reward": {"name": "energy_wait_time", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
-    "reward": {"name": "thomas", "params": {"alpha": 0, "beta": 1.0, "device": "cuda"}},
+    "reward": {"name": "thomas", "params": {"alpha": 0.7, "beta": 0.3, "device": "cuda"}},
     "learner": "a2c",
 }
 

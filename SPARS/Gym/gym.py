@@ -33,6 +33,7 @@ class HPCGymEnv(gym.Env):
         self.device = device
 
     def step(self, actions):
+        logger.info('============= CALL RL ================')
         state = self.simulator.PlatformControl.get_state()
         logger.info(f"Action taken: {actions}")
 

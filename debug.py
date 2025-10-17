@@ -166,6 +166,13 @@ def _build_agent(rl_cfg: dict, device: str):
     return model, optimizer
 # ---------------------------
 
+def get_action(model, obs):
+    logits, V = model(obs)
+    dist = T.distributions.Normal(logits, 0.02)
+    action = dist.sample()
+    log_prob = dist.log_prob(action)
+    
+    return action, log_prob
 
 def main():
     cfg = _load_config(DEFAULT_CFG_PATH)
@@ -225,45 +232,50 @@ def main():
             env.simulator.start_simulator()
             observation = env.get_observation()
 
-            memory_features = []
-            memory_masks = []
-            memory_actions = []
-            memory_rewards = []
-
             while env.simulator.is_running:
-                features_, mask_ = observation
-                features_ = features_.to(device)
+                batch_timesteps_size = 4
+                memory_features = []
+                memory_logprob = []
+                memory_actions = []
+                memory_rewards = []
+                
+                # roll out
+                for i in range(batch_timesteps_size):
+                    features_, mask_ = observation
+                    features_ = features_.to(device)
 
-                # your policy/value forward
+                    # your policy/value forward
 
-                # --- SPARS ---
-                logits, values = model(features_)
+                    # --- SPARS ---
+                    
+                    
+                    # Actions is considered as mean
+                    action, logprob = get_action(model, features_)
 
-                # --- Thomas Reshape ---
-                # features_reshaped = features_.reshape(1, num_nodes, 11)
-                # logits, values = model(features_reshaped)
+                    # --- Thomas Reshape ---
+                    # features_reshaped = features_.reshape(1, num_nodes, 11)
+                    # logits, values = model(features_reshaped)
 
-                next_observation, reward, done = env.step(logits)
+                    next_observation, reward, done = env.step(action)
 
-                logger.info(f"Step reward: {reward}")
+                    logger.info(f"Step reward: {reward}")
 
-                # store experience (detach from graph)
-                memory_actions.append(logits.detach())
-                memory_features.append(features_.detach())
-                memory_masks.append(mask_.detach())
-                memory_rewards.append(reward.detach() if isinstance(reward, T.Tensor)
-                                      else T.tensor(float(reward)))
+                    # store experience (detach from graph)
+                    memory_actions.append(action.detach())
+                    memory_logprob.append(logprob.detach())
+                    memory_features.append(features_.detach())
+                    memory_rewards.append(reward.detach() if isinstance(reward, T.Tensor)
+                                        else T.tensor(float(reward)))
 
-                saved_experiences = (
-                    memory_actions, memory_features, memory_masks, memory_rewards
-                )
+                    saved_experiences = (
+                        memory_actions, memory_features, memory_logprob, memory_rewards
+                    )
 
-                # learner chosen in SPARS.Gym.config (utils.G.learn)
+                    observation = next_observation
+                
                 G.learn(model, model_opt, done,
-                        saved_experiences, next_observation)
-
-                observation = next_observation
-
+                            saved_experiences)
+        
         log_output(env.simulator, output_path)
 
         # --- Save agent checkpoint ---

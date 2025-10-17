@@ -284,9 +284,9 @@ class Simulator:
             record_job_execution=record_job_execution,
         )
 
-        # if self.num_finished_jobs == self.num_jobs:
-        #     message = self.on_finish()
-        #     return message
+        if self.num_finished_jobs == self.num_jobs:
+            message = self.on_finish()
+            return message
 
         if need_rl:
             self.push_event(self.current_time, {'type': 'CALL_RL'})

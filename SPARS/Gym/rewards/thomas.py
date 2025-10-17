@@ -12,14 +12,11 @@ class Reward:
         beta: float = 0.9,
         device: str = "cuda",
         require_grad: bool = True,
-        # Δt (used in normalization), was 1800 literal
-        tick_seconds: float = 1800.0,
     ) -> None:
         self.alpha = float(alpha)
         self.beta = float(beta)
         self.device = T.device(device)
         self.require_grad = bool(require_grad)
-        self.tick_seconds = float(tick_seconds)
 
     # --------------------------
     # Helpers
@@ -40,7 +37,7 @@ class Reward:
     # --------------------------
     # Terms
     # --------------------------
-    def wasted_energy_reward(self, monitor, next_monitor) -> T.Tensor:
+    def wasted_energy_reward(self, monitor, next_monitor, tick_seconds) -> T.Tensor:
         """
         R1 = (next_total_waste - current_total_waste) normalized by total ECR * Δt
         Assumes each node is ACTIVE: uses its dvfs_mode to fetch ECR.
@@ -61,23 +58,23 @@ class Reward:
         for n in monitor.nodes_state:
             total_ecr += float(ecr_by_id[n["id"]][n["dvfs_mode"]])
 
-        denom = max(total_ecr * self.tick_seconds, 1e-9)  # avoid div/0
-        normalized_R1 = -self.alpha * (R1 / denom)
+        denom = max(total_ecr * tick_seconds, 1e-9)  # avoid div/0
+        normalized_R1 = -self.alpha * (R1/32)
+        logger.info(f'Wasted Energy: {normalized_R1}')
         return self._to_tensor(normalized_R1)
 
     def waiting_time_reward(self, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
 
         total_waiting_time = 0
         max_total_waiting_time = 0
+        count_jobs = 0
 
         jobs_submission_log = next_monitor.jobs_submission_log
         jobs_submitted_ids = {job["job_id"] for job in jobs_submission_log}
         for job in jobs_submission_log:
             if current_time < job["start_time"] <= next_time:
-                total_waiting_time += (job["start_time"] -
-                                       max(job['subtime'], current_time))
-                max_total_waiting_time += (next_time -
-                                           max(job['subtime'], current_time))
+                total_waiting_time += job["start_time"] -job['subtime']
+                count_jobs+= 1
 
         jobs_arrival_log = next_monitor.jobs_arrival_log
 
@@ -85,16 +82,20 @@ class Reward:
             if job['job_id'] not in jobs_submitted_ids:
                 total_waiting_time += (next_time -
                                        max(job['subtime'], current_time))
-                max_total_waiting_time += (next_time -
-                                           max(job['subtime'], current_time))
-        if max_total_waiting_time > 0:
-            R2 = total_waiting_time / max_total_waiting_time
-        else:
-            R2 = 0.0
+                count_jobs+= 1
 
-        return self._to_tensor(-self.beta * R2)
+        if count_jobs == 0:
+            R2 = 0
+        else:
+            R2 = total_waiting_time / count_jobs
+
+        wt = self._to_tensor(-self.beta * R2)
+        logger.info(f'Waiting Time: {wt}')
+
+        return wt
 
     def calculate_reward(self, monitor, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
-        return self.wasted_energy_reward(monitor, next_monitor) + \
+        tick_seconds = next_time-current_time
+        return self.wasted_energy_reward(monitor, next_monitor, tick_seconds) + \
             self.waiting_time_reward(
                 next_monitor, waiting_queue, current_time, next_time)

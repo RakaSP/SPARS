@@ -18,22 +18,18 @@ def feature_extraction(simulator) -> np.ndarray:
     dt = max(tnow - t0, 1e-8)
 
     job_num = float(len(tq))
-    arrival_rate = float(len(simulator.Monitor.jobs_submission_log)) / dt
-    mean_runtime_q = (sum(job.get("runtime", 0.0)
-                      for job in tq) / max(len(tq), 1e-8))
-    total_waste = float(sum(e.get("energy_waste", 0.0)
-                        for e in simulator.Monitor.energy))
-    mean_req_wt_q = mean_runtime_q
-    avg_req_nodes = (sum(job.get("res", 0.0)
-                     for job in tq) / max(len(tq), 1e-8))
+    arrival_rate = float(len(simulator.Monitor.jobs_arrival_log)) / dt
+
+    total_req_wt_q = sum(job.get("reqtime", 0.0)
+                      for job in tq) 
+    total_req_nodes = sum(job.get("res", 0.0)
+        for job in tq)
 
     sim_feats = np.array([
         job_num,
         arrival_rate,
-        float(mean_runtime_q),
-        total_waste,
-        float(mean_req_wt_q),
-        float(avg_req_nodes),
+        float(total_req_wt_q),
+        float(total_req_nodes),
     ], dtype=np.float32)  # [6]
 
     # === AGGREGATED NODE FEATURES ===
@@ -59,21 +55,15 @@ def feature_extraction(simulator) -> np.ndarray:
             if frm == "switching_off" and to == "sleeping" and nid in idle_set:
                 switch_off_times.append(tt)
 
-    avg_switch_on = (sum(switch_on_times) /
-                     max(len(switch_on_times),  1)) if switch_on_times else 0.0
-    avg_switch_off = (sum(switch_off_times) /
-                      max(len(switch_off_times), 1)) if switch_off_times else 0.0
+
 
     node_feats = np.array([
-        float(len(computing_nodes)),
         float(len(idle_nodes)),
         float(len(sleeping_nodes)),
-        float(avg_switch_on),
-        float(avg_switch_off),
     ], dtype=np.float32)  # [5]
 
     features = np.concatenate(
         [sim_feats, node_feats], axis=0).astype(np.float32)  # [11]
 
-    features = features.reshape(1, 11)
+    features = features.reshape(1, 6)
     return features

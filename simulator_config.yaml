@@ -1,21 +1,21 @@
 paths:
-  workload: "workloads/nasa-20-back.json"
-  platform: "platforms/platform-nasa-128.json"
-  output: "results/rl_workshop"
+  workload: "workloads/generated_5000_128.json"
+  platform: "platforms/generated_32.json"
+  output: "results/easy_smart_workshop"
 
 run:
-  algorithm: "easy_normal"
+  algorithm: "easy_smart"
   overrun_policy: "terminate"
-  timeout: null
+  timeout: 100
   # can be integer epoch, "now", or "YYYY-MM-DD HH:MM:SS"
   start_time: 0
 
 rl:
-  enabled: true
+  enabled: false
   type: "discrete" # "discrete" | "continuous"
-  dt: 1800 # required when type == "discrete"
+  dt: 500 # required when type == "discrete"
   device: "cuda" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)
-  epochs: 10
+  epochs: 50
   num_nodes: 128
 
   # Keep BOTH agents; pick which one runs via `assign` below
@@ -34,7 +34,7 @@ rl:
     spars:
       class: "RL_Agent.SPARS.agent:ActorCritic"
       params:
-        obs_dim: 11
+        obs_dim: 6
         device: "cuda"
       optimizer:
         class: "torch.optim:Adam"
@@ -47,5 +47,5 @@ rl:
   assign: "spars"
 
 logging:
-  level: "INFO"
+  level: "ERROR"
   file: "results/simulation.log"
