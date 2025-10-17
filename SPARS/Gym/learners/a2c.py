@@ -23,8 +23,7 @@ def learn(model, model_opt, done, saved_experiences, next_observation,
     memory_actions, memory_features, memory_masks, memory_rewards = saved_experiences
     memory_features = T.stack(memory_features, dim=0)
     memory_actions = T.stack(memory_actions, dim=0)
-    # NOTE: kept typo as-is (unused)
-    memory_rewads = T.stack(memory_rewards, dim=0)
+    memory_rewards = T.stack(memory_rewards, dim=0)
     next_features, _next_masks = next_observation
 
     # Device handling (two lines as in original)
