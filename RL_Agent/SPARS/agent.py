@@ -37,13 +37,12 @@ class ActorCritic(nn.Module):
 
     def forward(self, obs):
         """
-        obs: [B, F] (F = obs_dim)
+        obs: [T, F] (F = obs_dim)
         Output:
           action: [1], ∈ [0,1]
           value : [1]
         """
-        x = self.body(obs)                    # [B, 64]
-        x_mean = x.mean(dim=0, keepdim=True)  # [1, 64]
-        action = self.actor_head(x_mean).view(-1)  # [1]
-        value = self.critic_head(x_mean).view(-1)  # [1]
+        x = self.body(obs)                    # [T, 64]
+        action = self.actor_head(x).view(-1)  # [T]
+        value = self.critic_head(x).view(-1)  # [T]
         return action, value

@@ -66,15 +66,33 @@ def learn(model, model_opt, done, saved_experiences, next_observation,
         R = rews[t] + gamma * R
         returns[t] = R
 
-    advantages = gamma * returns - values
-    if len(advantages.shape) == 1:
-        advantages = advantages.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+    delta = T.zeros(Tlen, dtype=values.dtype, device=values.device)
+    # first option
+    print(values.shape)
+    # delta[Tlen-1] = rews[Tlen-1] - values[Tlen-1]
+
+    # Sec option
+    delta[Tlen-1] = rews[Tlen-1]
+
+    for t in range(Tlen-2, -1, -1):
+        delta[t] = rews[t] + gamma * values[t + 1] - values[t]
+
+    advantages = T.zeros(Tlen, dtype=values.dtype, device=values.device)
+
+    curr_advantage = delta[Tlen-1]
+
+    for t in range(Tlen-2, -1, -1):
+        curr_advantage = delta[t] + gamma * curr_advantage
+        advantages[t] = curr_advantage
 
     logger.info(f"log_probs.shape = {log_probs.shape}")
     logger.info(f"advantages.shape = {advantages.shape}")
     policy_loss = -(log_probs * advantages).mean()
     value_loss = (returns - values).pow(2).e**0.5 if False else (returns -
                                                                  values).pow(2).mean()  # NOTE: keep original mean
+    logger.info(f'Policy Loss: {policy_loss}')
+    logger.info(f'Value Loss: {value_loss}')
+
     loss = policy_loss + 0.5 * value_loss - entropy_coef * \
         entropy
 
