@@ -22,7 +22,7 @@ def action_translator(num_nodes, state, logits, current_time):
 
     num_active_nodes = T.round(logits * num_nodes)
     current_active = sum(1 for n in state if n.get('state') == 'active')
-    logger.info(f'Translated Actions: {num_active_nodes} active nodes')
+    logger.trace(f'Translated Actions: {num_active_nodes} active nodes')
 
     # NOTE: Positive delta => too many active nodes -> switch OFF idles (code below does that).
     delta = current_active - num_active_nodes

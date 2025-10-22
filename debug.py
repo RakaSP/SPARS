@@ -7,15 +7,8 @@ from typing import Any, Dict
 import torch as T
 
 from SPARS.Utils import setup_global_logger, get_global_logger, log_output
-from SPARS.Simulator.Simulator import Simulator, run_simulation
-
-# IMPORTANT: load Gym config BEFORE importing the env so monkey-patches apply
-from SPARS.Gym import config  # monkey patching the gym config
-from SPARS.Gym import utils as G
-from SPARS.Gym.gym import HPCGymEnv
 
 DEFAULT_CFG_PATH = "simulator_config.yaml"
-
 
 def _load_config(path: str = DEFAULT_CFG_PATH) -> Dict[str, Any]:
     """
@@ -32,6 +25,22 @@ def _load_config(path: str = DEFAULT_CFG_PATH) -> Dict[str, Any]:
             return yaml.safe_load(f)
     with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
+    
+cfg = _load_config(DEFAULT_CFG_PATH)
+
+# --- Logging ---
+setup_global_logger(
+    level=cfg["logging"]["level"],
+    log_file=cfg["logging"]["file"],
+)
+
+
+from SPARS.Simulator.Simulator import Simulator, run_simulation
+
+# IMPORTANT: load Gym config BEFORE importing the env so monkey-patches apply
+from SPARS.Gym import config  # monkey patching the gym config
+from SPARS.Gym import utils as G
+from SPARS.Gym.gym import HPCGymEnv
 
 
 def _choose_device(pref: str) -> str:
@@ -175,15 +184,6 @@ def get_action(model, obs):
     return action, log_prob
 
 def main():
-    cfg = _load_config(DEFAULT_CFG_PATH)
-
-    # --- Logging ---
-    setup_global_logger(
-        "runner",
-        level=cfg["logging"]["level"],
-        log_file=cfg["logging"]["file"],
-    )
-
     logger = get_global_logger()
 
     # --- Config Unpack (only the pieces you still use) ---
@@ -209,6 +209,10 @@ def main():
         agents_dict = cfg["rl"]["agents"]
         # pick the requested one
         agent_cfg = agents_dict[assigned_name]
+        
+        checkpoint = cfg["rl"]["checkpoint"]
+        learn = cfg['rl']['learn']
+        
 
         # Build simulator from config (no CLI/args)
         simulator = Simulator.from_config(
@@ -221,75 +225,116 @@ def main():
         # we keep its expected shape: {'agent': <agent_cfg>, 'device': <rl.device>}
         model, model_opt = _build_agent(
             {"agent": agent_cfg, "device": cfg["rl"]["device"]}, device)
+        
+        if checkpoint is not None:
+            ckpt = T.load(checkpoint, map_location=device)
+            model.load_state_dict(ckpt["model_state_dict"])
+            model_opt.load_state_dict(ckpt["optimizer_state_dict"])
+            model.to(device).train()
+        
+        
+        if learn:
+            MAX_EPOCH_REWARD = -99999999999
+            NO_IMPROVEMENT_COUNT = 0
 
-        for _ in range(epochs):
-            # reset per epoch
-            simulator = Simulator.from_config(
-                cfg,
-                rl_kwargs={"rl_type": rl_type, "rl_dt": rl_dt},
-            )
-            env.reset(simulator)
-            env.simulator.start_simulator()
-            observation = env.get_observation()
-
-            while env.simulator.is_running:
+            for _ in range(epochs):
+                logger.info(f'========== EPOCH {_} ==========')
+                # reset per epoch
+                simulator = Simulator.from_config(
+                    cfg,
+                    rl_kwargs={"rl_type": rl_type, "rl_dt": rl_dt},
+                )
+                env.reset(simulator)
+                env.simulator.start_simulator()
+                observation = env.get_observation()
                 batch_timesteps_size = 4
                 memory_features = []
                 memory_logprob = []
                 memory_actions = []
                 memory_rewards = []
-                
-                # roll out
-                for i in range(batch_timesteps_size):
-                    features_, mask_ = observation
-                    features_ = features_.to(device)
 
-                    # your policy/value forward
-
-                    # --- SPARS ---
+                while env.simulator.is_running:
                     
+                    # roll out
+                    for i in range(batch_timesteps_size):
+                        features_, mask_ = observation
+                        features_ = features_.to(device)
+
+                        # your policy/value forward
+
+                        action, logprob = get_action(model, features_)
+
+                        # --- Thomas Reshape ---
+                        # features_reshaped = features_.reshape(1, num_nodes, 11)
+                        # logits, values = model(features_reshaped)
+
+                        next_observation, reward, done = env.step(action)
+
+                        logger.trace(f"Step reward: {reward}")
+
+                        # store experience (detach from graph)
+                        memory_actions.append(action.detach())
+                        memory_logprob.append(logprob.detach())
+                        memory_features.append(features_.detach())
+                        memory_rewards.append(reward.detach() if isinstance(reward, T.Tensor)
+                                            else T.tensor(float(reward)))
+
+                        saved_experiences = (
+                            memory_actions, memory_features, memory_logprob, memory_rewards
+                        )
+
+                        observation = next_observation
+                        if done == True:
+                            break
                     
-                    # Actions is considered as mean
-                    action, logprob = get_action(model, features_)
-
-                    # --- Thomas Reshape ---
-                    # features_reshaped = features_.reshape(1, num_nodes, 11)
-                    # logits, values = model(features_reshaped)
-
-                    next_observation, reward, done = env.step(action)
-
-                    logger.info(f"Step reward: {reward}")
-
-                    # store experience (detach from graph)
-                    memory_actions.append(action.detach())
-                    memory_logprob.append(logprob.detach())
-                    memory_features.append(features_.detach())
-                    memory_rewards.append(reward.detach() if isinstance(reward, T.Tensor)
-                                        else T.tensor(float(reward)))
-
-                    saved_experiences = (
-                        memory_actions, memory_features, memory_logprob, memory_rewards
-                    )
-
-                    observation = next_observation
+                    G.learn(model, model_opt,
+                                saved_experiences)
+                    
+                avg_epoch_reward = sum(memory_rewards) / len(memory_rewards)
+                avg_action = sum(memory_actions) / len(memory_actions)
+               
+                if avg_epoch_reward > MAX_EPOCH_REWARD:
+                    MAX_EPOCH_REWARD = avg_epoch_reward
+                    NO_IMPROVEMENT_COUNT = 0
+                    # --- Save agent checkpoint ---
+                    os.makedirs(output_path, exist_ok=True)
+                    ckpt = {
+                        "agent_class": f"{model.__class__.__module__}:{model.__class__.__name__}",
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": model_opt.state_dict(),
+                        "rl_config": cfg.get("rl", {}),  # left as-is
+                        "epochs_trained": epochs,
+                    }
+                    ckpt_path = os.path.join(output_path, "agent_checkpoint.pt")
+                    T.save(ckpt, ckpt_path)
+                    logger.trace(f"Saved agent checkpoint to: {ckpt_path}")
+                    log_output(env.simulator, output_path)
+                else:
+                    NO_IMPROVEMENT_COUNT += 1
                 
-                G.learn(model, model_opt, done,
-                            saved_experiences)
-        
-        log_output(env.simulator, output_path)
+                logger.info(f"AVG ACTION: {avg_action}")
+                logger.info(f"AVG REWARD: {avg_epoch_reward}")
+                logger.info(f"MAX REWARD: {MAX_EPOCH_REWARD}")
+                logger.info(f"NO IMPROVEMENT COUNT: {NO_IMPROVEMENT_COUNT}")
+                
+                if NO_IMPROVEMENT_COUNT > 50:
+                # if NO_IMPROVEMENT_COUNT > 3 and _ > 50:
+                    break
+        else:
+            env.reset(simulator)
+            env.simulator.start_simulator()
+            observation = env.get_observation()
+            
+            while env.simulator.is_running:
+                features_, mask_ = observation
+                features_ = features_.to(device)
+                action, logprob = get_action(model, features_)
+                next_observation, reward, done = env.step(action)
+                observation = next_observation
+                
+            log_output(env.simulator, output_path)
 
-        # --- Save agent checkpoint ---
-        os.makedirs(output_path, exist_ok=True)
-        ckpt = {
-            "agent_class": f"{model.__class__.__module__}:{model.__class__.__name__}",
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": model_opt.state_dict(),
-            "rl_config": cfg.get("rl", {}),  # left as-is
-            "epochs_trained": epochs,
-        }
-        ckpt_path = os.path.join(output_path, "agent_checkpoint.pt")
-        T.save(ckpt, ckpt_path)
-        logger.info(f"Saved agent checkpoint to: {ckpt_path}")
+            
 
     else:
         simulator = Simulator.from_config(cfg)

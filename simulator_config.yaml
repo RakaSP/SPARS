@@ -1,22 +1,25 @@
 paths:
-  workload: "workloads/generated_5000_128.json"
-  platform: "platforms/generated_32.json"
-  output: "results/easy_smart_workshop"
+  workload: "workloads/generated_500_8_ws.json"
+  platform: "platforms/generated_64.json"
+  output: "results/workshop_rl_ws_analysis"
 
 run:
-  algorithm: "easy_smart"
+  algorithm: "easy_normal"
   overrun_policy: "terminate"
-  timeout: 100
+  timeout: null
   # can be integer epoch, "now", or "YYYY-MM-DD HH:MM:SS"
   start_time: 0
 
 rl:
-  enabled: false
+  enabled: true
+  learn: false
   type: "discrete" # "discrete" | "continuous"
-  dt: 500 # required when type == "discrete"
+  dt: 300 # required when type == "discrete"
   device: "cuda" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)
-  epochs: 50
-  num_nodes: 128
+  epochs: 999999999
+  num_nodes: 32
+  checkpoint: 'results/workshop_rl_train_4_(normal)/agent_checkpoint.pt'
+  # checkpoint: null
 
   # Keep BOTH agents; pick which one runs via `assign` below
   agents:
@@ -24,7 +27,7 @@ rl:
       class: "RL_Agent.Thomas.ActorCritic:ActorCritic"
       params:
         obs_dim: 11
-        embed_dim: 128
+        embed_dim: 32
         device: "cuda" # "auto" will resolve; omit to inherit rl.device
       optimizer:
         class: "torch.optim:Adam"
@@ -47,5 +50,5 @@ rl:
   assign: "spars"
 
 logging:
-  level: "ERROR"
+  level: "TRACE"
   file: "results/simulation.log"

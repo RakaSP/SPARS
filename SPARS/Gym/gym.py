@@ -33,9 +33,9 @@ class HPCGymEnv(gym.Env):
         self.device = device
 
     def step(self, actions):
-        logger.info('============= CALL RL ================')
+        logger.trace('============= CALL RL ================')
         state = self.simulator.PlatformControl.get_state()
-        logger.info(f"Action taken: {actions}")
+        logger.trace(f"Action taken: {actions}")
 
         """"Action translator for Scalar Active Target"""
         rl_events = action_translator(
@@ -53,19 +53,25 @@ class HPCGymEnv(gym.Env):
         need_rl = False
 
         prev_current_time = self.simulator.current_time
-
+        skipped = False
         while not need_rl and self.simulator.is_running:
-            events = self.simulator.proceed()
+            if rl_events or skipped:
+                events = self.simulator.proceed()
 
-            for event_list in events['event_list']:
-                for event in event_list['events']:
-                    if event['type'] == 'CALL_RL':
-                        need_rl = True
+                for event_list in events['event_list']:
+                    for event in event_list['events']:
+                        if event['type'] == 'CALL_RL':
+                            need_rl = True
+                            break
+                    if need_rl:
                         break
                 if need_rl:
                     break
-            if need_rl:
-                break
+            
+            # Mark as skipped if rl_events was empty
+            if not rl_events and not skipped:
+                skipped = True
+
 
             scheduler_message = self.simulator.scheduler.schedule(
                 self.simulator.current_time)

@@ -14,8 +14,8 @@ def evaluate(model, batch_obs, batch_acts):
     
     return V, log_probs
 
-def learn(model, model_opt, done, saved_experiences,
-          gamma: float = 0.99, entropy_coef: float = 0.0, eps: float = 1e-12):
+def learn(model, model_opt, saved_experiences,
+          gamma: float = 0.99):
     """
     Batched A2C-style update.
     Expects saved_experiences as lists of Tensors with matching shapes per step:

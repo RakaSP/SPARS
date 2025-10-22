@@ -15,6 +15,8 @@ class JobsManager:
         for job in self.waiting_queue:
             self.remove_job_from_waiting_queue(job['job_id'], 'terminated')
 
+        logger.info(f'Job terminated count: {self.num_terminated_jobs}')
+        
     def add_job_to_waiting_queue(self, job):
         self.waiting_queue.append(job)
 
@@ -24,7 +26,7 @@ class JobsManager:
                 if type == 'terminated':
                     self.terminated_jobs.append(job)
                     self.num_terminated_jobs += 1
-                    logger.info(f'Job {job_id} is terminated')
+                    logger.trace(f'Job {job_id} is terminated')
                 elif type == 'execution_start':
                     self.active_jobs_id.append(job_id)
                 else:

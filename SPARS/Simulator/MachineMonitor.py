@@ -76,17 +76,54 @@ class Monitor:
         # Aggregate state counts over time
         self.state_switch: List[Dict] = []
 
-    # ---------- debug prints ----------
+        # ---------- debug prints ----------
     def print_energy(self):
+        total_consumption = 0.0
+        total_effective = 0.0
+        total_waste = 0.0
+        
         for e in self.energy:
-            logger.info(
+            logger.trace(
                 f"Node {e['id']}: Energy Consumption = {e['energy_consumption']}, "
                 f"Energy Effective = {e['energy_effective']}, Energy Waste = {e['energy_waste']}"
             )
+            total_consumption += e['energy_consumption']
+            total_effective += e['energy_effective']
+            total_waste += e['energy_waste']
+            
+        logger.info(
+            f"TOTAL ENERGY: Consumption = {total_consumption}, "
+            f"Effective = {total_effective}, Waste = {total_waste}"
+        )
 
     def print_states_dur(self):
+        total_duration = {}
+        
         for d in self.states_dur:
-            logger.info(f"Node {d['id']}: {d}")
+            logger.trace(f"Node {d['id']}: {d}")
+            
+            # Accumulate totals across all nodes
+            for state, dvfs_dict in d.items():
+                if state == "id":
+                    continue
+                if state not in total_duration:
+                    total_duration[state] = {}
+                
+                for dvfs_mode, duration in dvfs_dict.items():
+                    if dvfs_mode not in total_duration[state]:
+                        total_duration[state][dvfs_mode] = 0.0
+                    total_duration[state][dvfs_mode] += duration
+        
+        logger.info(f"TOTAL STATES DURATION: {total_duration}")
+    
+    def print_mean_wt(self):
+        total_wt = 0
+        # for job in self.jobs_execution_log:
+        #     total_wt += job['start_time'] - job['subtime']
+        
+        # mean_wt = total_wt / len(self.jobs_execution_log)
+        # logger.info(f'MEAN WAITING TIME: {mean_wt}')
+            
 
     # ---------- end-of-sim finalize ----------
     def on_finish(self):
@@ -103,6 +140,7 @@ class Monitor:
             )
         self.print_energy()
         self.print_states_dur()
+        self.print_mean_wt()
 
     # ---------- main public entry ----------
     def record(

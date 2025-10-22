@@ -59,20 +59,20 @@ class Reward:
             total_ecr += float(ecr_by_id[n["id"]][n["dvfs_mode"]])
 
         denom = max(total_ecr * tick_seconds, 1e-9)  # avoid div/0
-        normalized_R1 = -self.alpha * (R1/32)
-        logger.info(f'Wasted Energy: {normalized_R1}')
+        normalized_R1 = (R1/64)
+        # normalized_R1 = -self.alpha * (R1/32)
+        logger.trace(f'Wasted Energy: {normalized_R1}')
         return self._to_tensor(normalized_R1)
 
     def waiting_time_reward(self, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
 
         total_waiting_time = 0
-        max_total_waiting_time = 0
         count_jobs = 0
 
         jobs_submission_log = next_monitor.jobs_submission_log
         jobs_submitted_ids = {job["job_id"] for job in jobs_submission_log}
         for job in jobs_submission_log:
-            if current_time < job["start_time"] <= next_time:
+            if current_time <= job["start_time"] <= next_time:
                 total_waiting_time += job["start_time"] -job['subtime']
                 count_jobs+= 1
 
@@ -89,13 +89,17 @@ class Reward:
         else:
             R2 = total_waiting_time / count_jobs
 
-        wt = self._to_tensor(-self.beta * R2)
-        logger.info(f'Waiting Time: {wt}')
+        wt = self._to_tensor(R2)
+        # wt = self._to_tensor(-self.beta * R2)
+        logger.trace(f'Waiting Time: {wt}')
 
         return wt
 
     def calculate_reward(self, monitor, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
         tick_seconds = next_time-current_time
-        return self.wasted_energy_reward(monitor, next_monitor, tick_seconds) + \
-            self.waiting_time_reward(
-                next_monitor, waiting_queue, current_time, next_time)
+        wasted_energy = self.wasted_energy_reward(monitor, next_monitor, tick_seconds)
+        waiting_time = self.waiting_time_reward(
+                next_monitor, waiting_queue, current_time, next_time) 
+        reward = -(self.alpha * wasted_energy) - (self.beta * waiting_time)
+        return  reward, wasted_energy, waiting_time
+            

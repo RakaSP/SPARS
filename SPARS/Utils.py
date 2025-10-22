@@ -21,14 +21,13 @@ _logger_config = None
 
 
 def setup_global_logger(
-    name: str = "runner",
-    level: str = "INFO",
-    log_file: Optional[str] = None,
+    level: str,
+    log_file: str,
     propagate: bool = False
 ):
     global _logger_config
     _logger_config = {
-        "name": name,
+        "name": "runner",
         "level": level,
         "log_file": log_file,
         "propagate": propagate
