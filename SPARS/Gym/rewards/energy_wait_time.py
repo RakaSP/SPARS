@@ -1,84 +1,105 @@
-# SPARS/Gym/rewards/energy_wait_time.py
 from SPARS.Utils import get_global_logger
+from typing import Dict, Any
 import torch as T
 
 logger = get_global_logger()
 
 
 class Reward:
-    """
-    reward_per_node = α * (-energy_waste_per_node) + β * (-waiting_time_metric)
-    where waiting_time_metric is a scalar (mean wait of finished jobs) broadcast to all nodes.
-    """
-
-    def __init__(self, alpha: float = 0.1, beta: float = 0.9,
-                 # mean wait per finished job (True) or sum (False)
-                 use_mean_wait: bool = True,
-                 device: str = "cuda",
-                 require_grad: bool = True):   # keep True to match your current pipeline
-        self.alpha = alpha
-        self.beta = beta
-        self.use_mean_wait = use_mean_wait
+    def __init__(
+        self,
+        alpha: float = 0.1,
+        beta: float = 0.9,
+        device: str = "cuda",
+        require_grad: bool = True,
+    ) -> None:
+        self.alpha = float(alpha)
+        self.beta = float(beta)
         self.device = T.device(device)
-        self.require_grad = require_grad
+        self.require_grad = bool(require_grad)
+
+    # --------------------------
+    # Helpers
+    # --------------------------
+    def _to_tensor(self, value: float) -> T.Tensor:
+        return T.tensor(value, dtype=T.float32, device=self.device, requires_grad=self.require_grad)
 
     @staticmethod
-    def _get_first_key(d: dict, keys):
-        for k in keys:
-            if k in d:
-                return d[k]
-        return None
+    def _sum_wait(logs: list[Dict[str, Any]], time) -> float:
+        # Robust to missing keys/None
+        total = 0.0
+        for log in logs:
+            sub = log["subtime"]
+            total += (time - sub)
 
-    def _compute_waiting_time_scalar(self, monitor) -> float:
+        return total
+
+    # --------------------------
+    # Terms
+    # --------------------------
+    def wasted_energy_reward(self, monitor, next_monitor, tick_seconds) -> T.Tensor:
         """
-        Compute a scalar waiting-time metric from monitor logs:
-        wait_j = max(0, start_time_j - submit_time_j) for each job with both times available.
-        Returns 0.0 if no valid pairs found.
+        R1 = (next_total_waste - current_total_waste) normalized by total ECR * Δt
+        Assumes each node is ACTIVE: uses its dvfs_mode to fetch ECR.
         """
-        submit_by_id = {}
-        for job in monitor.jobs_submission_log:
-            jid = self._get_first_key(job, ["job_id"])
-            submit = self._get_first_key(
-                job, ["subtime"])
-            if jid is not None and submit is not None:
-                submit_by_id[jid] = float(submit)
+        current_total_waste = sum(e.get('energy_waste')
+                                  for e in monitor.energy)
+        next_total_waste = sum(e.get('energy_waste')
+                               for e in next_monitor.energy)
+        R1 = next_total_waste - current_total_waste
 
-        waits = []
-        for job in monitor.jobs_execution_log:
-            jid = self._get_first_key(job, ["job_id", "id", "jid"])
-            start = self._get_first_key(
-                job, ["start_time"])
-            submit = submit_by_id.get(jid)
-            if submit is not None and start is not None:
-                wait = float(start) - float(submit)
-                if wait > 0:
-                    waits.append(wait)
+        # Build index: node_id -> dvfs_profiles
+        ecr_by_id: Dict[int, Dict[str, float]] = {
+            e["id"]: e["dvfs_profiles"] for e in monitor.ecr}
 
-        if not waits:
-            return 0.0
-        if self.use_mean_wait:
-            return float(sum(waits) / len(waits))
+        # Total ECR assuming nodes are active ⇒ use dvfs profile for each node's dvfs_mode
+        # This will raise KeyError on unknown id/mode (prefer loud fail over silent 0).
+        total_ecr = 0.0
+        for n in monitor.nodes_state:
+            total_ecr += float(ecr_by_id[n["id"]][n["dvfs_mode"]])
+
+        denom = max(total_ecr * tick_seconds, 1e-9)  # avoid div/0
+        normalized_R1 = (R1/64)
+        # normalized_R1 = -self.alpha * (R1/32)
+        logger.trace(f'Wasted Energy: {normalized_R1}')
+        return self._to_tensor(normalized_R1)
+
+    def waiting_time_reward(self, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
+
+        total_waiting_time = 0
+        count_jobs = 0
+
+        jobs_submission_log = next_monitor.jobs_submission_log
+        jobs_submitted_ids = {job["job_id"] for job in jobs_submission_log}
+        for job in jobs_submission_log:
+            if current_time <= job["start_time"] <= next_time:
+                total_waiting_time += job["start_time"] -job['subtime']
+                count_jobs+= 1
+
+        jobs_arrival_log = next_monitor.jobs_arrival_log
+
+        for job in jobs_arrival_log:
+            if job['job_id'] not in jobs_submitted_ids:
+                total_waiting_time += (next_time -
+                                       max(job['subtime'], current_time))
+                count_jobs+= 1
+
+        if count_jobs == 0:
+            R2 = 0
         else:
-            return float(sum(waits))
+            R2 = total_waiting_time / count_jobs
 
-    def calculate_reward(self, monitor, waiting_queue, current_time):
-        """
-        Returns a scalar reward (torch tensor) on self.device.
-        Higher energy waste or waiting time => more negative reward.
-        """
-        total_waste = sum(float(e.get('energy_waste'))
-                          for e in monitor.energy)
-        total_wait = sum(
-            float(current_time) - float(j.get('subtime'))
-            for j in waiting_queue
-        )
+        wt = self._to_tensor(R2)
+        # wt = self._to_tensor(-self.beta * R2)
+        logger.trace(f'Waiting Time: {wt}')
 
-        waste_t = T.tensor(total_waste, dtype=T.float32, device=self.device)
-        wait_t = T.tensor(total_wait,  dtype=T.float32, device=self.device)
+        return wt
 
-        penalty = self.alpha * waste_t + self.beta * wait_t
-        reward = -penalty  # penalize waste & wait
-
-        logger.info(
-            f"total_waste={waste_t.item():.4f}, total_wait={wait_t.item():.4f}, reward={reward.item():.4f}")
-        return reward  # 0-D tensor on self.device
+    def calculate_reward(self, monitor, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
+        tick_seconds = next_time-current_time
+        wasted_energy = self.wasted_energy_reward(monitor, next_monitor, tick_seconds)
+        waiting_time = self.waiting_time_reward(
+                next_monitor, waiting_queue, current_time, next_time) 
+        reward = -(self.alpha * wasted_energy) - (self.beta * waiting_time)
+        # return  reward, wasted_energy, waiting_time
+        return  reward

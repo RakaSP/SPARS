@@ -1,7 +1,7 @@
 paths:
-  workload: "workloads/generated_500_8_ws.json"
-  platform: "platforms/generated_64.json"
-  output: "results/workshop_rl_ws_analysis"
+  workload: "workloads/nasa-80-front.json"
+  platform: "platforms/nasa.json"
+  output: "results/workshop_rl_ws_thomas"
 
 run:
   algorithm: "easy_normal"
@@ -12,14 +12,14 @@ run:
 
 rl:
   enabled: true
-  learn: false
+  learn: true
   type: "discrete" # "discrete" | "continuous"
-  dt: 300 # required when type == "discrete"
+  dt: 1800 # required when type == "discrete"
   device: "cuda" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)
   epochs: 999999999
-  num_nodes: 32
-  checkpoint: 'results/workshop_rl_train_4_(normal)/agent_checkpoint.pt'
-  # checkpoint: null
+  num_nodes: 128
+  # checkpoint: 'results/workshop_rl_train_4_(normal)/agent_checkpoint.pt'
+  checkpoint: null
 
   # Keep BOTH agents; pick which one runs via `assign` below
   agents:
@@ -27,7 +27,7 @@ rl:
       class: "RL_Agent.Thomas.ActorCritic:ActorCritic"
       params:
         obs_dim: 11
-        embed_dim: 32
+        embed_dim: 128
         device: "cuda" # "auto" will resolve; omit to inherit rl.device
       optimizer:
         class: "torch.optim:Adam"
@@ -47,7 +47,7 @@ rl:
     import: import
 
   # Single-agent assignment — set to "thomas" or "spars"
-  assign: "spars"
+  assign: "thomas"
 
 logging:
   level: "TRACE"
