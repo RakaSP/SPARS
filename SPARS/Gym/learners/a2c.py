@@ -26,7 +26,8 @@ def learn(model, model_opt, saved_experiences,
     next_observation = (next_features, next_masks) with next_features: [N,D]
     Agent forward: logits, value = model(features)
     """
-    memory_actions, memory_features, memory_logprob, memory_rewards = saved_experiences
+    memory_actions, memory_features, memory_rewards = saved_experiences
+    # memory_actions, memory_features, memory_logprob, memory_rewards = saved_experiences
     memory_features = T.stack(memory_features, dim=0)
     memory_actions = T.stack(memory_actions, dim=0)
     memory_rewards = T.stack(memory_rewards, dim=0)
@@ -63,7 +64,9 @@ def learn(model, model_opt, saved_experiences,
     for i in range(updates_per_iterations):
         _, current_logprob = evaluate(model, memory_features, memory_actions)
         ratio = T.exp(current_logprob - batch_logprob)
-        
+        print(advantages.shape)
+        print(ratio.shape)
+        advantages = advantages.view(-1, 1, 1, 1)
         surr1 = advantages * ratio
         surr2 = T.clamp(ratio, 1-clip, 1+clip) * advantages
         

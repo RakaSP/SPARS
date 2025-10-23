@@ -36,10 +36,10 @@ LEARNERS = {
 
 # Choose by local names (or use dotted strings directly)
 CFG = {
-    "feature_extractor": "global_node_11d",
-    # "feature_extractor": "thomas",
-    "translator": "scalar_active_target",
-    # "translator": "thomas",
+    # "feature_extractor": "global_node_11d",
+    "feature_extractor": "thomas",
+    # "translator": "scalar_active_target",
+    "translator": "thomas",
     "feasible_mask": "default",
     # "reward": {"name": "energy_wait_time", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
     "reward": {"name": "thomas", "params": {"alpha": 0.02, "beta": 0.98, "device": "cuda"}},

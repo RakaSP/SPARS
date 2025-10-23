@@ -38,13 +38,13 @@ class HPCGymEnv(gym.Env):
         logger.trace(f"Action taken: {actions}")
 
         """"Action translator for Scalar Active Target"""
-        rl_events = action_translator(
-            self.simulator.Monitor.num_nodes, state, actions, self.simulator.current_time)
+        # rl_events = action_translator(
+        #     self.simulator.Monitor.num_nodes, state, actions, self.simulator.current_time)
 
         """Thomas Action Translator"""
         monitor = copy.deepcopy(self.simulator.Monitor)
-        # rl_events = action_translator(
-        #     actions, state, self.simulator.current_time)
+        rl_events = action_translator(
+            actions, state, self.simulator.current_time)
 
         for _rl_event in rl_events:
             self.simulator.push_event(

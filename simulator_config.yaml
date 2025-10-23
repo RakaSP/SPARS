@@ -1,6 +1,6 @@
 paths:
   workload: "workloads/nasa-80-front.json"
-  platform: "platforms/nasa.json"
+  platform: "platforms/platform-nasa-128.json"
   output: "results/workshop_rl_ws_thomas"
 
 run:
@@ -16,7 +16,7 @@ rl:
   type: "discrete" # "discrete" | "continuous"
   dt: 1800 # required when type == "discrete"
   device: "cuda" # "cpu" | "cuda" | "auto" (explicit "auto" resolves to cuda if available)
-  epochs: 999999999
+  epochs: 5
   num_nodes: 128
   # checkpoint: 'results/workshop_rl_train_4_(normal)/agent_checkpoint.pt'
   checkpoint: null

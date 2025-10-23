@@ -2,10 +2,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Python Debugger: Run debug_copy.py",
+      "name": "Python Debugger: Run debug.py",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/debug_copy.py",
+      "program": "${workspaceFolder}/debug.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     },

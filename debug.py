@@ -262,25 +262,36 @@ def main():
 
                         # your policy/value forward
 
-                        action, logprob = get_action(model, features_)
+                        # SPARS
+                        # action, logprob = get_action(model, features_)
 
                         # --- Thomas Reshape ---
-                        # features_reshaped = features_.reshape(1, num_nodes, 11)
-                        # logits, values = model(features_reshaped)
+                        features_reshaped = features_.reshape(1, num_nodes, 11)
+                        logits, values = model(features_reshaped)
+                        action = logits
 
                         next_observation, reward, done = env.step(action)
 
                         logger.trace(f"Step reward: {reward}")
 
                         # store experience (detach from graph)
+                        # memory_actions.append(action.detach())
+                        # memory_logprob.append(logprob.detach())
+                        # memory_features.append(features_.detach())
+                        # memory_rewards.append(reward.detach() if isinstance(reward, T.Tensor)
+                        #                     else T.tensor(float(reward)))
+
+                        # saved_experiences = (
+                        #     memory_actions, memory_features, memory_logprob, memory_rewards
+                        # )
+                        
                         memory_actions.append(action.detach())
-                        memory_logprob.append(logprob.detach())
                         memory_features.append(features_.detach())
                         memory_rewards.append(reward.detach() if isinstance(reward, T.Tensor)
                                             else T.tensor(float(reward)))
 
                         saved_experiences = (
-                            memory_actions, memory_features, memory_logprob, memory_rewards
+                            memory_actions, memory_features, memory_rewards
                         )
 
                         observation = next_observation
