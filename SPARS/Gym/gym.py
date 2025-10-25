@@ -1,5 +1,6 @@
 # gym_env.py
 import copy
+import time
 import numpy as np
 import gymnasium as gym
 from SPARS.Utils import get_global_logger
@@ -33,6 +34,8 @@ class HPCGymEnv(gym.Env):
         self.device = device
 
     def step(self, actions):
+        checkpoints = []
+        checkpoints.append(time.time())
         logger.trace('============= CALL RL ================')
         state = self.simulator.PlatformControl.get_state()
         logger.info(f"Current Time: {self.simulator.current_time}")
@@ -43,7 +46,14 @@ class HPCGymEnv(gym.Env):
         #     self.simulator.Monitor.num_nodes, state, actions, self.simulator.current_time)
 
         """Thomas Action Translator"""
-        monitor = copy.deepcopy(self.simulator.Monitor)
+        checkpoints.append(time.time())
+        # monitor = copy.deepcopy(self.simulator.Monitor)
+        monitor = {
+            'energy': copy.deepcopy(self.simulator.Monitor.energy),
+            'ecr': copy.deepcopy(self.simulator.Monitor.ecr),
+            'nodes_state': copy.deepcopy(self.simulator.Monitor.nodes_state),
+        }
+        checkpoints.append(time.time())
         rl_events = action_translator(
             actions, state, self.simulator.current_time)
 
@@ -55,6 +65,7 @@ class HPCGymEnv(gym.Env):
 
         prev_current_time = self.simulator.current_time
         skipped = False
+        checkpoints.append(time.time())
         while not need_rl and self.simulator.is_running:
             if rl_events or skipped:
                 events = self.simulator.proceed()
@@ -68,11 +79,10 @@ class HPCGymEnv(gym.Env):
                         break
                 if need_rl:
                     break
-            
+
             # Mark as skipped if rl_events was empty
             if not rl_events and not skipped:
                 skipped = True
-
 
             scheduler_message = self.simulator.scheduler.schedule(
                 self.simulator.current_time)
@@ -83,6 +93,7 @@ class HPCGymEnv(gym.Env):
                 for event in _events:
                     self.simulator.push_event(timestamp, event)
 
+        checkpoints.append(time.time())
         next_current_time = self.simulator.current_time
         reward_function = Reward()
 
@@ -93,10 +104,31 @@ class HPCGymEnv(gym.Env):
         """Thomas Calculate Reward"""
         future_monitor = self.simulator.Monitor
         reward = reward_function.calculate_reward(
-            monitor, future_monitor, self.simulator.jobs_manager.waiting_queue, prev_current_time, next_current_time)
+            monitor, future_monitor, prev_current_time, next_current_time)
+        checkpoints.append(time.time())
 
         done = not self.simulator.is_running
         observation = self.get_observation()
+        checkpoints.append(time.time())
+
+        headers = ["start", "get state", "deepcopy monitor", "translate action", "process events",
+                   "calc reward", "get obs and finish", "Total"]
+        row = [
+            checkpoints[0],
+            checkpoints[1] - checkpoints[0],
+            checkpoints[2] - checkpoints[1],
+            checkpoints[3] - checkpoints[2],
+            checkpoints[4] - checkpoints[3],
+            checkpoints[5] - checkpoints[4],
+            checkpoints[6] - checkpoints[5],
+            checkpoints[6] - checkpoints[0],
+        ]
+
+        # Render as a simple table
+        colw = 20
+        print(" | ".join(f"{h:>{colw}}" for h in headers))
+        print("-+-".join("-" * colw for _ in headers))
+        print(" | ".join(f"{v:>{colw}.6f}" for v in row))
 
         return observation, reward, done
 

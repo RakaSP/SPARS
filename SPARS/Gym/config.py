@@ -2,6 +2,8 @@
 # Define everything here; utils.py has NO defaults/registries.
 # Import this module BEFORE importing your env so the monkey-patch takes effect.
 
+from SPARS.Utils import get_global_logger
+import os
 from SPARS.Gym import utils as G
 
 # Local name -> dotted path (pure-config; edit freely here)
@@ -98,3 +100,49 @@ def _reward_factory():
 G.Reward = _reward_factory
 
 SELECTED = CFG  # optional: export chosen config
+
+# ---- Announce effective config (one-time on import) -------------------------
+logger = get_global_logger()
+
+
+def _dotted(obj):
+    # nice "module:qualname" for callables/classes; fallback to str
+    try:
+        mod = getattr(obj, "__module__", None) or type(obj).__module__
+        qn = getattr(obj, "__qualname__", None) or type(obj).__qualname__
+        return f"{mod}:{qn}"
+    except Exception:
+        return str(obj)
+
+
+def _format_reward(spec):
+    # mirror your CFG semantics, but only for display
+    if isinstance(spec, dict):
+        name = spec.get("name")
+        params = spec.get("params", {})
+        # show mapped/dotted name (no instantiation)
+        mapped = REWARDS.get(name, name)
+        return f"name={mapped}, params={params}"
+    return str(REWARDS.get(spec, spec))
+
+
+def _announce_selected():
+    lines = [
+        "SPARS.Gym config selected:",
+        f"  feature_extractor = {_dotted(feature_extractor)}",
+        f"  translator       = {_dotted(translator)}",
+        f"  feasible_mask    = {_dotted(feasible_mask)}",
+        f"  learner          = {_dotted(learner)}",
+        f"  reward           = {_format_reward(CFG['reward'])}",
+    ]
+    msg = "\n".join(lines)
+    # Use logger by default; allow hard print via env
+    if os.getenv("SPARS_CONFIG_PRINT", "0") == "1":
+        print(msg)
+    else:
+        logger.info(msg)
+
+
+# allow silencing via env if needed
+if os.getenv("SPARS_CONFIG_SILENT", "0") != "1":
+    _announce_selected()

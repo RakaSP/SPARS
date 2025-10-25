@@ -46,26 +46,26 @@ class Reward:
         Assumes each node is ACTIVE: uses its dvfs_mode to fetch ECR.
         """
         current_total_waste = sum(e.get('energy_waste')
-                                  for e in monitor.energy)
+                                  for e in monitor['energy'])
         next_total_waste = sum(e.get('energy_waste')
                                for e in next_monitor.energy)
         R1 = next_total_waste - current_total_waste
 
         # Build index: node_id -> dvfs_profiles
         ecr_by_id: Dict[int, Dict[str, float]] = {
-            e["id"]: e["dvfs_profiles"] for e in monitor.ecr}
+            e["id"]: e["dvfs_profiles"] for e in monitor['ecr']}
 
         # Total ECR assuming nodes are active ⇒ use dvfs profile for each node's dvfs_mode
         # This will raise KeyError on unknown id/mode (prefer loud fail over silent 0).
         total_ecr = 0.0
-        for n in monitor.nodes_state:
+        for n in monitor['nodes_state']:
             total_ecr += float(ecr_by_id[n["id"]][n["dvfs_mode"]])
 
         denom = max(total_ecr * self.tick_seconds, 1e-9)  # avoid div/0
         normalized_R1 = -self.alpha * (R1 / denom)
         return self._to_tensor(normalized_R1)
 
-    def waiting_time_reward(self, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
+    def waiting_time_reward(self, next_monitor, current_time, next_time) -> T.Tensor:
 
         total_waiting_time = 0
         max_total_waiting_time = 0
@@ -94,7 +94,7 @@ class Reward:
 
         return self._to_tensor(-self.beta * R2)
 
-    def calculate_reward(self, monitor, next_monitor, waiting_queue, current_time, next_time) -> T.Tensor:
+    def calculate_reward(self, monitor, next_monitor, current_time, next_time) -> T.Tensor:
         return self.wasted_energy_reward(monitor, next_monitor) + \
             self.waiting_time_reward(
-                next_monitor, waiting_queue, current_time, next_time)
+                next_monitor, current_time, next_time)
