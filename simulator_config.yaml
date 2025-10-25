@@ -1,7 +1,7 @@
 paths:
-  workload: "workloads/nasa-80-front.json"
+  workload: "workloads/training/sample-real-synthetic-fixed.json"
   platform: "platforms/platform-nasa-128.json"
-  output: "results/workshop_rl_ws_thomas"
+  output: "results/workshop_rl_ws_thomas_curriculum_learning_v1"
 
 run:
   algorithm: "easy_normal"
@@ -50,5 +50,5 @@ rl:
   assign: "thomas"
 
 logging:
-  level: "TRACE"
+  level: "INFO"
   file: "results/simulation.log"

@@ -9,7 +9,8 @@ logger = get_global_logger()
 def evaluate(model, batch_obs, batch_acts):
     logits, V = model(batch_obs)
     
-    dist = T.distributions.Normal(logits, 0.02)
+    dist = T.distributions.Categorical(logits)
+    # dist = T.distributions.Normal(logits, 0.02)
     log_probs = dist.log_prob(batch_acts)
     
     return V, log_probs
@@ -64,8 +65,6 @@ def learn(model, model_opt, saved_experiences,
     for i in range(updates_per_iterations):
         _, current_logprob = evaluate(model, memory_features, memory_actions)
         ratio = T.exp(current_logprob - batch_logprob)
-        print(advantages.shape)
-        print(ratio.shape)
         advantages = advantages.view(-1, 1, 1, 1)
         surr1 = advantages * ratio
         surr2 = T.clamp(ratio, 1-clip, 1+clip) * advantages

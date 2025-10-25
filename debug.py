@@ -177,7 +177,8 @@ def _build_agent(rl_cfg: dict, device: str):
 
 def get_action(model, obs):
     logits, V = model(obs)
-    dist = T.distributions.Normal(logits, 0.02)
+    # dist = T.distributions.Normal(logits, 0.02)
+    dist = T.distributions.Categorical(logits)
     action = dist.sample()
     log_prob = dist.log_prob(action)
     
@@ -247,13 +248,13 @@ def main():
                 env.reset(simulator)
                 env.simulator.start_simulator()
                 observation = env.get_observation()
-                batch_timesteps_size = 4
-                memory_features = []
-                memory_logprob = []
-                memory_actions = []
-                memory_rewards = []
+                batch_timesteps_size = 32
 
                 while env.simulator.is_running:
+                    memory_features = []
+                    memory_logprob = []
+                    memory_actions = []
+                    memory_rewards = []
                     
                     # roll out
                     for i in range(batch_timesteps_size):
@@ -262,13 +263,12 @@ def main():
 
                         # your policy/value forward
 
-                        # SPARS
-                        # action, logprob = get_action(model, features_)
-
                         # --- Thomas Reshape ---
                         features_reshaped = features_.reshape(1, num_nodes, 11)
-                        logits, values = model(features_reshaped)
-                        action = logits
+
+                        # SPARS
+                        action, logprob = get_action(model, features_reshaped)
+                        # action, logprob = get_action(model, features_)
 
                         next_observation, reward, done = env.step(action)
 

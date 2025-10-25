@@ -60,6 +60,7 @@ def feature_extraction(simulator) -> np.ndarray:
                 current_state_duration = _node_state['duration']
                 break
 
+        # release_by_id = simulator.scheduler.algorithm._agenda_by_id()
         release_by_id = simulator.scheduler.algorithm._releases_by_id()
         node_features[3] = release_by_id[i].get('release_time')
 

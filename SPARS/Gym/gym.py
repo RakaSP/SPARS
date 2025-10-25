@@ -35,7 +35,8 @@ class HPCGymEnv(gym.Env):
     def step(self, actions):
         logger.trace('============= CALL RL ================')
         state = self.simulator.PlatformControl.get_state()
-        logger.trace(f"Action taken: {actions}")
+        logger.info(f"Current Time: {self.simulator.current_time}")
+        logger.info(f"Action taken: {actions}")
 
         """"Action translator for Scalar Active Target"""
         # rl_events = action_translator(

@@ -1,5 +1,3 @@
-# SPARS/Gym/translators/scalar_active_target.py
-# NOTE: Logic unchanged; comments added only.
 from SPARS.Utils import get_global_logger
 import torch as T
 

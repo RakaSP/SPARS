@@ -14,6 +14,7 @@ FEATURE_EXTRACTORS = {
 TRANSLATORS = {
     "scalar_active_target": "SPARS.Gym.translators.scalar_active_target:action_translator",
     "thomas": "SPARS.Gym.translators.thomas:action_translator",
+    "thomas_categorical": "SPARS.Gym.translators.thomas_categorical:action_translator",
     "import": "SPARS.Gym.translators.import_translator:action_translator",
 }
 
@@ -39,10 +40,10 @@ CFG = {
     # "feature_extractor": "global_node_11d",
     "feature_extractor": "thomas",
     # "translator": "scalar_active_target",
-    "translator": "thomas",
+    "translator": "thomas_categorical",
     "feasible_mask": "default",
     # "reward": {"name": "energy_wait_time", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
-    "reward": {"name": "thomas", "params": {"alpha": 0.02, "beta": 0.98, "device": "cuda"}},
+    "reward": {"name": "thomas", "params": {"alpha": 0.5, "beta": 0.5, "device": "cuda"}},
     "learner": "a2c",
 }
 
